@@ -48,59 +48,59 @@ impl LogItemBean {
     }
 
     // Getter 和 Setter 方法
-    fn get_reason(&self) -> Option<&str> {
+    pub fn get_reason(&self) -> Option<&str> {
         self.reason.as_deref()
     }
 
-    fn set_reason(&mut self, reason: String) {
+    pub fn set_reason(&mut self, reason: String) {
         self.reason = Some(reason);
     }
 
-    fn get_process_name(&self) -> Option<&str> {
+    pub fn get_process_name(&self) -> Option<&str> {
         self.process_name.as_deref()
     }
 
-    fn set_process_name(&mut self, process_name: String) {
+    pub fn set_process_name(&mut self, process_name: String) {
         self.process_name = Some(process_name);
     }
 
-    fn get_time(&self) -> Option<&str> {
+    pub fn get_time(&self) -> Option<&str> {
         self.time.as_deref()
     }
 
-    fn set_time(&mut self, time: String) {
+    pub fn set_time(&mut self, time: String) {
         self.time = Some(time);
     }
 
-    fn get_pid(&self) -> Option<&str> {
+    pub fn get_pid(&self) -> Option<&str> {
         self.pid.as_deref()
     }
 
-    fn set_pid(&mut self, pid: String) {
+    pub fn set_pid(&mut self, pid: String) {
         self.pid = Some(pid);
     }
 
-    fn get_tid(&self) -> Option<&str> {
+    pub fn get_tid(&self) -> Option<&str> {
         self.tid.as_deref()
     }
 
-    fn set_tid(&mut self, tid: String) {
+    pub fn set_tid(&mut self, tid: String) {
         self.tid = Some(tid);
     }
 
-    fn get_description(&self) -> Option<&str> {
+    pub fn get_description(&self) -> Option<&str> {
         self.description.as_deref()
     }
 
-    fn set_description(&mut self, description: String) {
+    pub fn set_description(&mut self, description: String) {
         self.description = Some(description);
     }
 
-    fn get_content(&self) -> Option<&str> {
+    pub fn get_content(&self) -> Option<&str> {
         self.content.as_deref()
     }
 
-    fn set_content(&mut self, content: String) {
+    pub fn set_content(&mut self, content: String) {
         self.content = Some(content);
     }
 
