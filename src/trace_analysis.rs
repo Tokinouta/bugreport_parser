@@ -1,6 +1,18 @@
-use std::{collections::HashMap, fs::File, io::{BufRead, BufReader, BufWriter}, path::Path};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{self, BufRead, BufReader, BufWriter, Seek, Write},
+    path::Path,
+};
 
-use crate::models::{log_item_bean::LogItemBean, result_item_bean::ResultItemBean};
+use crate::{
+    models::{
+        lock_bean::{HeldThread, LockBean},
+        log_item_bean::LogItemBean,
+        result_item_bean::ResultItemBean,
+    },
+    utils::file_utils,
+};
 
 const BINDER_TRANSACT: &str = "$Stub$Proxy.";
 const BINDER_PROXY: &str = "$Proxy.";
@@ -143,7 +155,11 @@ impl TraceAnalysis {
         };
 
         let out_filename = if let Some(time) = log_bean.get_time() {
-            format!("result_trace_{}_{}", log_bean.get_process_name().unwrap(), time)
+            format!(
+                "result_trace_{}_{}",
+                log_bean.get_process_name().unwrap(),
+                time
+            )
         } else {
             format!("result_trace_{}", log_bean.get_process_name().unwrap())
         };
@@ -168,7 +184,7 @@ impl TraceAnalysis {
         writer: &mut BufWriter<File>,
         result_bean: &mut ResultItemBean,
     ) -> i32 {
-        // this.mCurrentLogBean = logBean; Consider how to convert this to Rust 
+        // this.mCurrentLogBean = logBean; Consider how to convert this to Rust
         if let Ok(file) = File::open(src_file) {
             let reader = BufReader::new(file);
             let start_line = if let Some(pid) = log_bean.get_pid() {
@@ -199,5 +215,419 @@ impl TraceAnalysis {
         } else {
             -1 // 失败
         }
+    }
+
+    fn get_main(
+        &mut self,
+        reader: &mut impl BufRead,
+        writer: &mut BufWriter<File>,
+        src_file: &Path,
+        result_bean: &mut ResultItemBean,
+    ) -> i32 {
+        let mut is_main_mode = false;
+        let mut type_code = 0;
+
+        if self.lock_map.is_empty() {
+            self.lock_map.clear();
+        }
+
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap() > 0 {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            if line.starts_with("Cmd line: ") {
+                self.current_cmd_line = line.to_string();
+            }
+
+            if line[1..].starts_with("main") {
+                is_main_mode = true;
+                break;
+            }
+        }
+
+        if !is_main_mode {
+            return -1;
+        }
+
+        self.write_process_info(writer).unwrap();
+        file_utils::write_line_to_file(&line, writer).unwrap();
+
+        let mut api = String::new();
+        let mut package_name = String::new();
+        let mut lock_bean = LockBean::new();
+        result_bean.get_trace_list_mut().clear();
+        let process_name = result_bean.get_process_name().to_string();
+        let mut is_add_trace_line_continue = true;
+
+        while reader.read_line(&mut line).unwrap() > 0 && !line.starts_with("\"") {
+            file_utils::write_line_to_file(&line, writer).unwrap();
+
+            if !process_name.is_empty() {
+                if line.trim().starts_with("at") && is_add_trace_line_continue {
+                    result_bean.get_trace_list_mut().push(line.to_string());
+                }
+
+                if line.contains(&process_name) {
+                    is_add_trace_line_continue = false;
+                }
+            }
+
+            if line.contains("$Stub$Proxy.") {
+                type_code = 1;
+                let start = line.find("$Stub$Proxy.").unwrap() + "$Stub$Proxy.".len();
+                api = line[start..line.rfind("(").unwrap()].to_string();
+                package_name = line[..line.find("$Proxy.").unwrap()].to_string();
+                continue;
+            }
+
+            if line.contains("waiting to lock <") {
+                type_code = 2;
+                self.get_lock_from_line(&line, &mut lock_bean);
+                continue;
+            }
+
+            if line.contains("- locked <") {
+                self.get_lock_from_line(&line, &mut lock_bean);
+                let lock_key =
+                    line[line.find("<").unwrap() + 1..line.find(">").unwrap()].to_string();
+                self.lock_map.insert(lock_key, true);
+            }
+        }
+
+        match type_code {
+            1 => {
+                self.binder_call_timeout(&api, &package_name, writer, src_file);
+            }
+            2 => {
+                let mut model_lines = Vec::new();
+                if let Ok(file) = File::open(src_file) {
+                    let mut reader = BufReader::new(file);
+                    self.analyse_trace_by_lock(
+                        &mut lock_bean,
+                        &mut model_lines,
+                        writer,
+                        src_file,
+                        &mut reader,
+                    );
+                }
+            }
+            _ => {}
+        }
+
+        type_code
+    }
+
+    // Binder 调用超时逻辑
+    fn binder_call_timeout(
+        &mut self,
+        api: &str,
+        remote_package: &str,
+        writer: &mut BufWriter<File>,
+        src_file: &Path,
+    ) -> io::Result<()> {
+        if api.is_empty() || remote_package.is_empty() {
+            return Ok(());
+        }
+
+        let remote_package = format!("{}.onTransact", remote_package);
+
+        let file = File::open(src_file)?;
+        let mut reader = BufReader::new(file);
+        let mut mode_lines = Vec::new();
+        let mut has_api = false;
+        let mut has_package = false;
+        let mut has_binder_transact = false;
+
+        let mut line = String::new();
+        while reader.read_line(&mut line)? > 0 {
+            if line.starts_with("----- pid ") {
+                self.current_pid_line = line.trim().to_string();
+            } else if line.starts_with("Cmd line: ") {
+                self.current_cmd_line = line.trim().to_string();
+            }
+
+            if line.starts_with("\"") {
+                mode_lines.clear();
+                mode_lines.push(self.current_pid_line.clone());
+                mode_lines.push(self.current_cmd_line.clone());
+                has_api = false;
+                has_package = false;
+                has_binder_transact = false;
+            }
+
+            mode_lines.push(line.trim().to_string());
+
+            if line.contains(api) {
+                has_api = true;
+            }
+            if line.contains(&remote_package) {
+                has_package = true;
+            }
+            if line.contains("android.os.Binder.execTransact") {
+                has_binder_transact = true;
+            }
+
+            if has_api && has_package && has_binder_transact {
+                break;
+            }
+        }
+
+        let mut lock_bean = LockBean::new();
+        self.get_lock_from_model(&mut lock_bean, &mode_lines, writer);
+        self.analyse_trace_by_lock(
+            &mut lock_bean,
+            &mut mode_lines,
+            writer,
+            src_file,
+            &mut reader,
+        );
+
+        Ok(())
+    }
+
+    // 从行中提取锁信息
+    fn get_lock_from_line(&self, line: &str, lock_bean: &mut LockBean) {
+        if line.contains("waiting to lock <") {
+            let object = line
+                .split("waiting to lock <")
+                .nth(1)
+                .and_then(|s| s.split('>').next())
+                .map(|s| s.trim().to_string());
+            if let Some(obj) = object {
+                lock_bean.add_waiting(obj);
+            }
+        } else if line.contains("- locked <") {
+            let object = line
+                .split("- locked <")
+                .nth(1)
+                .and_then(|s| s.split('>').next())
+                .map(|s| s.trim().to_string());
+            if let Some(obj) = object {
+                lock_bean.add_lock(obj);
+            }
+        }
+
+        let thread_tag = if line.contains("held by tid=") {
+            Some("held by tid=")
+        } else if line.contains("held by thread ") {
+            Some("held by thread ")
+        } else {
+            None
+        };
+
+        if let Some(tag) = thread_tag {
+            let substring = line.split(tag).nth(1).unwrap_or("");
+            let tid = if let Some(end_index) = substring.find(' ') {
+                format!("tid={}", &substring[..end_index])
+            } else {
+                format!("tid={}", substring)
+            };
+
+            let thread_name = if substring.contains('(') && substring.contains(')') {
+                Some(
+                    substring
+                        .split('(')
+                        .nth(1)
+                        .and_then(|s| s.split(')').next())
+                        .unwrap_or("")
+                        .to_string(),
+                )
+            } else {
+                None
+            };
+
+            lock_bean.add_waiting_thread(tid, thread_name);
+        }
+    }
+
+    // 从模型行中提取锁信息
+    fn get_lock_from_model(
+        &self,
+        lock_bean: &mut LockBean,
+        model_lines: &[String],
+        writer: &mut BufWriter<File>,
+    ) -> io::Result<()> {
+        if model_lines.is_empty() {
+            println!("getLockFromModel modelLines is empty");
+            return Ok(());
+        }
+
+        if writer.get_ref().metadata().is_err() || lock_bean.get_locked_objects().is_empty() {
+            println!("getLockFromModel lockBean or writer is invalid");
+            return Ok(());
+        }
+
+        lock_bean.clear();
+
+        for line in model_lines {
+            file_utils::write_line_to_file(line, writer)?;
+            self.get_lock_from_line(line, lock_bean);
+        }
+
+        Ok(())
+    }
+
+    // 检查是否包含特殊锁
+    fn contain_special_lock(&self, line: &str, search_lock: &[String]) -> bool {
+        for lock in search_lock {
+            if line.contains(lock) {
+                return true;
+            }
+        }
+        false
+    }
+
+    // 写入进程信息
+    fn write_process_info(&self, writer: &mut BufWriter<File>) -> io::Result<()> {
+        if !file_utils::is_empty(&self.current_pid_line)
+            && self.current_pid_line != self.last_pid_line
+        {
+            file_utils::write_line_to_file(&self.current_pid_line, writer)?;
+        }
+        if !file_utils::is_empty(&self.current_cmd_line)
+            && self.current_cmd_line != self.last_cmd_line
+        {
+            file_utils::write_line_to_file(&self.current_cmd_line, writer)?;
+        }
+        Ok(())
+    }
+
+    // 检查线程模型
+    fn check_thread_model(&self, line: &str, held_threads: &[HeldThread]) -> bool {
+        if file_utils::is_empty(line) {
+            return false;
+        }
+        if held_threads.is_empty() {
+            return true;
+        }
+
+        let mut is_in_model = false;
+        for held_thread in held_threads {
+            if !line.contains(&held_thread.tid) {
+                continue;
+            }
+            match &held_thread.thread_name {
+                Some(name) => {
+                    if line.contains(name) {
+                        is_in_model = true;
+                        break;
+                    }
+                }
+                None => {
+                    is_in_model = true;
+                    break;
+                }
+            }
+        }
+
+        if is_in_model {
+            if let Some(start) = self.current_pid_line.find("at") {
+                if let Some(end) = self.current_pid_line.find(" -----") {
+                    let start = start + 3; // "at" 的长度是 2，加上空格
+                    if start < end {
+                        let time = &self.current_pid_line[start..end];
+                        if let Some(log_bean) = &self.current_log_bean {
+                            is_in_model = log_bean.time_in_frame(time, 21000);
+                            return is_in_model;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    // 分析基于锁的跟踪
+    fn analyse_trace_by_lock(
+        &mut self,
+        lock_object: &mut LockBean,
+        model_lines: &mut Vec<String>,
+        writer: &mut BufWriter<File>,
+        src_file: &Path,
+        reader: &mut BufReader<File>,
+    ) -> io::Result<()> {
+        if lock_object.get_waiting_objects().is_empty() || !src_file.exists() {
+            return Ok(());
+        }
+
+        model_lines.clear();
+
+        // 将锁定的对象添加到锁映射中
+        for object in lock_object.get_locked_objects() {
+            self.lock_map.insert(object.clone(), true);
+        }
+
+        // 构建搜索锁列表
+        let search_lock: Vec<String> = lock_object
+            .get_waiting_objects()
+            .iter()
+            .map(|obj| format!("- locked <{}>", obj))
+            .collect();
+
+        let mut line = String::new();
+        let mut is_find = false;
+        let mut is_in_the_model = false;
+        let temp_pid_line = self.current_pid_line.clone();
+        let temp_cmd_line = self.current_cmd_line.clone();
+        let mut pos_in_model_list = 0;
+
+        // 读取文件内容
+        while reader.read_line(&mut line)? > 0 {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            if line.starts_with("----- pid ") {
+                self.current_pid_line = line.to_string();
+            } else if line.starts_with("Cmd line: ") {
+                self.current_cmd_line = line.to_string();
+            }
+
+            if line.starts_with("\"") {
+                if is_find {
+                    break;
+                }
+
+                is_in_the_model = self.check_thread_model(line, lock_object.get_waiting_threads());
+                if is_in_the_model {
+                    pos_in_model_list = model_lines.len();
+                    model_lines.push(self.current_pid_line.clone());
+                    model_lines.push(self.current_cmd_line.clone());
+                }
+            }
+
+            if is_in_the_model {
+                model_lines.push(line.to_string());
+                if self.contain_special_lock(line, &search_lock) {
+                    is_find = true;
+                }
+            }
+        }
+
+        // 重置读取器
+        reader.seek(io::SeekFrom::Start(0))?;
+
+        // 恢复原始状态
+        self.current_pid_line = temp_pid_line;
+        self.current_cmd_line = temp_cmd_line;
+
+        // 处理模型行
+        if !model_lines.is_empty() {
+            if is_find {
+                model_lines.truncate(pos_in_model_list);
+            }
+
+            // 调用 get_lock_from_model 方法
+            self.get_lock_from_model(lock_object, model_lines, writer)?;
+
+            // 递归调用 analyse_trace_by_lock
+            self.analyse_trace_by_lock(lock_object, model_lines, writer, src_file, reader)?;
+        }
+
+        Ok(())
     }
 }

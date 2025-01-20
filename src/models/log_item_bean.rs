@@ -1,6 +1,6 @@
-use std::fmt;
-use chrono::{DateTime, NaiveDateTime, Utc, Duration};
 use chrono::format::ParseError;
+use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use std::fmt;
 
 // 定义 LogItemBean 结构体
 #[derive(Debug, Clone, Default)]
@@ -105,7 +105,7 @@ impl LogItemBean {
     }
 
     // 比较两个 LogItemBean 是否相等
-    fn equals(&self, other: &LogItemBean, max_time_diff: i64) -> bool {
+    pub fn equals(&self, other: &LogItemBean, max_time_diff: i64) -> bool {
         if other.time.is_none() {
             return self.pid == other.pid;
         }
@@ -116,7 +116,7 @@ impl LogItemBean {
     }
 
     // 检查时间是否在允许的范围内
-    fn time_in_frame(&self, time2: &str, max_time_diff: i64) -> bool {
+    pub fn time_in_frame(&self, time2: &str, max_time_diff: i64) -> bool {
         let time1 = self.check_time(self.get_time().unwrap());
         let time2 = self.check_time(time2);
 

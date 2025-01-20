@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use models::result_item_bean::ResultItemBean;
 
 pub mod models;
-mod trace_analysis;
+pub mod trace_analysis;
+pub mod utils;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

@@ -52,4 +52,19 @@ impl ResultItemBean {
     pub fn get_out_path(&self) -> &str {
         &self.out_path
     }
+
+    // 获取 process_name
+    pub fn get_process_name_mut(&mut self) -> &mut str {
+        &mut self.process_name
+    }
+
+    // 获取 trace_list
+    pub fn get_trace_list_mut(&mut self) -> &mut Vec<String> {
+        &mut self.trace_list
+    }
+
+    // 获取 out_path
+    pub fn get_out_path_mut(&mut self) -> &mut str {
+        &mut self.out_path
+    }
 }
