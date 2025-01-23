@@ -2,13 +2,111 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 
+use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+use lazy_static::lazy_static;
 use regex::Regex;
+
+lazy_static! {
+    static ref SECTION_BEGIN: Regex = Regex::new(r#"------ (.*?)(?: \((.*)\)) ------"#).unwrap();
+    static ref SECTION_BEGIN_NO_CMD: Regex = Regex::new(r#"^------ ([^(]+) ------$"#).unwrap();
+    static ref SECTION_END: Regex =
+        Regex::new(r#"------ (\d+.\d+)s was the duration of '(.*?)(?: \(.*\))?' ------"#).unwrap();
+}
 
 #[derive(Debug)]
 struct Section {
     name: String,
     start_line: usize,
     end_line: usize,
+}
+
+#[derive(Debug)]
+struct Bugreport {
+    timestamp: DateTime<Local>,
+    sections: Vec<Section>,
+}
+
+impl Bugreport {
+    fn new() -> Self {
+        Bugreport {
+            timestamp: Local::now(),
+            sections: Vec::new(),
+        }
+    }
+
+    pub fn read_and_slice(&mut self, path: &Path) -> io::Result<Vec<(usize, String)>> {
+        // Open the file
+        let file = File::open(path)?;
+        let mut reader = BufReader::new(file);
+
+        let mut buf = String::new();
+        reader.read_line(&mut buf)?;
+        buf.clear();
+        reader.read_line(&mut buf)?;
+        let parse_timestamp = |line: &str| {
+            let timestamp_str = line.trim_start_matches("== dumpstate: ").trim();
+            NaiveDateTime::parse_from_str(timestamp_str, "%Y-%m-%d %H:%M:%S")
+                .map(|naive_dt| Local.from_local_datetime(&naive_dt).unwrap())
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+        };
+        self.timestamp = parse_timestamp(&buf)?;
+
+        // Create a vector to store the line number and content of each match
+        let mut matches: Vec<(usize, String)> = Vec::new();
+
+        for (line_number, line) in reader.lines().enumerate() {
+            let line = line?;
+
+            // Check if the first regex matches and capture groups
+            if let Some(caps) = SECTION_END.captures(&line) {
+                if let Some(group) = caps.get(2) {
+                    // Get the second capture group
+                    filter_and_add(&mut matches, line_number + 1, group.as_str());
+                }
+            }
+            // Check for the second regex
+            else if let Some(caps) = SECTION_BEGIN.captures(&line) {
+                if let Some(group) = caps.get(1) {
+                    filter_and_add(&mut matches, line_number + 1, group.as_str());
+                }
+            }
+            // Check for the third regex
+            else if let Some(caps) = SECTION_BEGIN_NO_CMD.captures(&line) {
+                if let Some(group) = caps.get(1) {
+                    filter_and_add(&mut matches, line_number + 1, group.as_str());
+                }
+            }
+        }
+
+        // Output all the matches stored in the variable
+        for (line_number, content) in &matches {
+            println!("Line {}: {}", line_number, content);
+        }
+
+        Ok(matches)
+    }
+
+    pub fn pair_sections(&mut self, matches: &Vec<(usize, String)>) {
+        // iterate over matches with indices
+        let mut second_occurance = false;
+        for (index, (line_number, content)) in matches.iter().enumerate() {
+            if index > 0 && content.contains(&matches.get(index - 1).unwrap().1) {
+                second_occurance = true;
+            }
+            if !second_occurance {
+                continue;
+            }
+
+            let current_section = Section {
+                name: content.to_string(),
+                start_line: matches.get(index - 1).unwrap().0,
+                end_line: *line_number,
+            };
+            self.sections.push(current_section);
+
+            second_occurance = false;
+        }
+    }
 }
 
 fn filter_and_add(matches: &mut Vec<(usize, String)>, line_number: usize, group: &str) {
@@ -20,98 +118,46 @@ fn filter_and_add(matches: &mut Vec<(usize, String)>, line_number: usize, group:
         }
     }
 }
-
-pub fn read_and_slice(path: &Path) -> io::Result<Vec<(usize, String)>> {
-    let SECTION_BEGIN = Regex::new(r#"------ (.*?)(?: \((.*)\)) ------"#).unwrap();
-    let SECTION_BEGIN_NO_CMD = Regex::new(r#"^------ ([^(]+) ------$"#).unwrap();
-    let SECTION_END =
-        Regex::new(r#"------ (\d+.\d+)s was the duration of '(.*?)(?: \(.*\))?' ------"#).unwrap();
-
-    // Open the file
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
-
-    // Create a vector to store the line number and content of each match
-    let mut matches: Vec<(usize, String)> = Vec::new();
-
-    for (line_number, line) in reader.lines().enumerate() {
-        let line = line?;
-
-        // Check if the first regex matches and capture groups
-        if let Some(caps) = SECTION_END.captures(&line) {
-            if let Some(group) = caps.get(2) {
-                // Get the second capture group
-                filter_and_add(&mut matches, line_number + 1, group.as_str());
-            }
-        }
-        // Check for the second regex
-        else if let Some(caps) = SECTION_BEGIN.captures(&line) {
-            if let Some(group) = caps.get(1) {
-                filter_and_add(&mut matches, line_number + 1, group.as_str());
-            }
-        }
-        // Check for the third regex
-        else if let Some(caps) = SECTION_BEGIN_NO_CMD.captures(&line) {
-            if let Some(group) = caps.get(1) {
-                filter_and_add(&mut matches, line_number + 1, group.as_str());
-            }
-        }
-    }
-
-    // Output all the matches stored in the variable
-    for (line_number, content) in &matches {
-        println!("Line {}: {}", line_number, content);
-    }
-
-    Ok(matches)
-}
-
-fn pair_sections(matches: &Vec<(usize, String)>) -> Vec<Section> {
-    let mut sections: Vec<Section> = Vec::new();
-    // iterate over matches with indices
-    let mut second_occurance = false;
-    for (index, (line_number, content)) in matches.iter().enumerate() {
-        if index > 0 && content.contains(&matches.get(index - 1).unwrap().1) {
-            second_occurance = true;
-        }
-        if !second_occurance {
-            continue;
-        }
-
-        let current_section = Section {
-            name: content.to_string(),
-            start_line: matches.get(index - 1).unwrap().0,
-            end_line: *line_number,
-        };
-        sections.push(current_section);
-
-        second_occurance = false;
-    }
-    sections
-}
-
 mod tests {
+    use chrono::{NaiveDate, TimeZone};
+
     use super::*;
     #[test]
     fn test_read_and_slice() {
-        let matches = read_and_slice(Path::new("tests/data/example.txt")).unwrap();
+        let mut bugreport = Bugreport::new();
+        let matches = bugreport
+            .read_and_slice(Path::new("tests/data/example.txt"))
+            .unwrap();
         assert_eq!(matches.len(), 274);
+        assert_eq!(
+            bugreport.timestamp,
+            Local
+                .from_local_datetime(
+                    &NaiveDate::from_ymd_opt(2024, 8, 16)
+                        .unwrap()
+                        .and_hms_opt(10, 02, 11)
+                        .unwrap(),
+                )
+                .unwrap()
+        );
     }
 
     #[test]
     fn test_pair_sections() {
-        let matches = match read_and_slice(Path::new("tests/data/example.txt")) {
+        let mut bugreport = Bugreport::new();
+        let matches = match bugreport.read_and_slice(Path::new("tests/data/example.txt")) {
             Ok(matches) => matches,
             Err(e) => {
                 println!("Error: {}", e);
                 return;
             }
         };
-        let sections = pair_sections(&matches);
-        for section in sections.iter() {
+        let mut bugreport = Bugreport::new();
+        bugreport.pair_sections(&matches);
+        for section in bugreport.sections.iter() {
             println!("{:?}", section);
         }
-    
-        assert_eq!(sections.len(), 134);
+
+        assert_eq!(bugreport.sections.len(), 134);
     }
 }
