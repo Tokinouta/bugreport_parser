@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs::File,
-    io::{self, BufRead, BufReader, BufWriter, Seek, Write},
+    io::{self, BufRead, BufReader, BufWriter, Read, Seek, Write},
     path::Path,
 };
 
@@ -27,7 +27,7 @@ const PREFIX_PID: &str = "----- pid ";
 const PREFIX_CMD: &str = "Cmd line: ";
 
 #[derive(Debug, Default)]
-struct TraceAnalysis {
+pub struct TraceAnalysis {
     current_pid_line: String,
     current_cmd_line: String,
     last_pid_line: String,
@@ -38,7 +38,7 @@ struct TraceAnalysis {
 
 impl TraceAnalysis {
     // 构造函数
-    fn new() -> Self {
+    pub fn new() -> Self {
         TraceAnalysis {
             ..Default::default()
         }
@@ -107,11 +107,12 @@ impl TraceAnalysis {
 
 impl TraceAnalysis {
     // 分析多个 LogItemBean
-    fn analyse_trace_list(
+    pub fn analyse_trace_list(
         &mut self,
         src_file: &Path,
         bean_list: &mut [LogItemBean],
         result_list: &mut Vec<ResultItemBean>,
+        out_folder: Option<&Path>
     ) -> Vec<i32> {
         let mut reasons = Vec::new();
 
@@ -126,7 +127,7 @@ impl TraceAnalysis {
             item.set_out_path(src_file.parent().unwrap().to_string_lossy().to_string());
 
             let reason =
-                self.analyse_trace(src_file, log_bean, src_file.parent().unwrap(), &mut item);
+                self.analyse_trace(src_file, log_bean, &mut item, out_folder.unwrap_or(src_file.parent().unwrap()));
             reasons.push(reason);
             result_list.push(item);
         }
@@ -135,12 +136,12 @@ impl TraceAnalysis {
     }
 
     // 分析单个 LogItemBean
-    fn analyse_trace(
+    pub fn analyse_trace(
         &mut self,
         src_file: &Path,
         log_bean: &mut LogItemBean,
-        out_folder: &Path,
         item: &mut ResultItemBean,
+        out_folder: &Path,
     ) -> i32 {
         if !src_file.exists() || !src_file.is_file() {
             return -1;
@@ -168,7 +169,7 @@ impl TraceAnalysis {
 
         if let Ok(file) = File::create(&out_file) {
             let mut writer = BufWriter::new(file);
-            let main_reason = self.analyse_trace_internal(src_file, log_bean, &mut writer, item);
+            let main_reason = self.analyse_trace_internal(src_file, log_bean, item, &mut writer);
             println!("Output file: {:?}", out_file);
             main_reason
         } else {
@@ -181,23 +182,25 @@ impl TraceAnalysis {
         &mut self,
         src_file: &Path,
         log_bean: &mut LogItemBean,
-        writer: &mut BufWriter<File>,
         result_bean: &mut ResultItemBean,
+        writer: &mut BufWriter<File>,
     ) -> i32 {
         // this.mCurrentLogBean = logBean; Consider how to convert this to Rust
         if let Ok(file) = File::open(src_file) {
-            let reader = BufReader::new(file);
+            let mut reader = BufReader::new(file);
             let start_line = if let Some(pid) = log_bean.get_pid() {
                 format!("----- pid {} at ", pid)
             } else {
                 format!("Cmd line: {}", log_bean.get_process_name().unwrap())
             };
 
-            for line in reader.lines().flatten() {
+            let mut previous_line = String::new();
+            for line in reader.by_ref().lines().flatten() {
                 if line.starts_with(&start_line) {
                     if line.starts_with("----- pid ") {
                         self.current_pid_line = line.clone();
                     } else if line.starts_with("Cmd line: ") {
+                        self.current_pid_line = previous_line.clone();
                         self.current_cmd_line = line.clone();
                     }
 
@@ -209,9 +212,19 @@ impl TraceAnalysis {
                             }
                         }
                     }
+
+                    if log_bean.get_time().is_some() && log_bean.get_pid().is_some() {
+                        let end = line.rfind(" -----").unwrap();
+                        let start = start_line.len();
+                        let time = &line[start..end];
+                        if !log_bean.time_in_frame(time, 30000) {
+                            continue;
+                        }
+                    }
                 }
+                previous_line = line;
             }
-            0 // 成功
+            self.get_main(&mut reader, writer, src_file, result_bean) // 成功
         } else {
             -1 // 失败
         }
@@ -219,7 +232,7 @@ impl TraceAnalysis {
 
     fn get_main(
         &mut self,
-        reader: &mut impl BufRead,
+        reader: &mut BufReader<File>,
         writer: &mut BufWriter<File>,
         src_file: &Path,
         result_bean: &mut ResultItemBean,
@@ -541,7 +554,7 @@ impl TraceAnalysis {
     }
 
     // 分析基于锁的跟踪
-    fn analyse_trace_by_lock(
+    pub(crate) fn analyse_trace_by_lock(
         &mut self,
         lock_object: &mut LockBean,
         model_lines: &mut Vec<String>,

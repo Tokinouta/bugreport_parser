@@ -1,3 +1,4 @@
+pub mod anr_result_bean;
 pub mod lock_bean;
 pub mod log_item_bean;
 pub mod result_item_bean;

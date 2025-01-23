@@ -1,5 +1,4 @@
-use chrono::format::ParseError;
-use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use chrono::{NaiveDateTime, Utc};
 use std::fmt;
 
 // 定义 LogItemBean 结构体
@@ -124,7 +123,7 @@ impl LogItemBean {
             return false;
         }
 
-        let format = "%Y-%m-%d %H:%M:%S%.f";
+        let format = "%Y-%m-%d %H:%M:%S";
         if let Ok(dt1) = NaiveDateTime::parse_from_str(&time1.unwrap(), format) {
             if let Ok(dt2) = NaiveDateTime::parse_from_str(&time2.unwrap(), format) {
                 let diff = dt1.signed_duration_since(dt2).num_milliseconds().abs();
@@ -139,7 +138,8 @@ impl LogItemBean {
         if time.is_empty() {
             return None;
         }
-        if !time.contains('-') {
+
+        if time.find('-').unwrap() != 4 {
             let now = Utc::now();
             let year = now.format("%Y").to_string();
             return Some(format!("{}-{}", year, time));
@@ -160,5 +160,49 @@ impl fmt::Display for LogItemBean {
             self.process_name.as_deref().unwrap_or(""),
             self.reason.as_deref().unwrap_or("")
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::models::lock_bean::LockBean;
+    use crate::TraceAnalysis;
+    use std::{
+        fs::File,
+        io::{BufReader, BufWriter},
+        path::Path,
+    };
+
+    #[test]
+    fn main() {
+        // 示例文件路径
+        let src_file = Path::new("path/to/src_file");
+
+        // 创建 LockBean 实例
+        let mut lock_object = LockBean::new();
+
+        // 创建 BufWriter 实例
+        if let Ok(file) = File::create("path/to/output_file") {
+            let mut writer = BufWriter::new(file);
+
+            // 创建 BufReader 实例
+            if let Ok(file) = File::open(src_file) {
+                let mut reader = BufReader::new(file);
+
+                // 创建 TracesAnalyse 实例
+                let mut analyser = TraceAnalysis::new();
+
+                // 调用 analyse_trace_by_lock 方法
+                if let Err(e) = analyser.analyse_trace_by_lock(
+                    &mut lock_object,
+                    &mut Vec::new(),
+                    &mut writer,
+                    src_file,
+                    &mut reader,
+                ) {
+                    eprintln!("Error: {}", e);
+                }
+            }
+        }
     }
 }

@@ -5,6 +5,7 @@ use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use models::result_item_bean::ResultItemBean;
+use trace_analysis::TraceAnalysis;
 
 pub mod models;
 pub mod trace_analysis;
@@ -58,7 +59,8 @@ fn main() {
             eprintln!("Error: Please input package name while analyse trace only.");
             return;
         }
-        // analyse_trace(file_path, package_name);
+        let analysis = TraceAnalysis::new();
+        // analysis.analyse_trace(file_path, package_name);
     } else {
         parse_log(file_path, &args);
     }
@@ -67,10 +69,12 @@ fn main() {
 }
 
 fn print_help() {
-    println!("Usage: program_name [-h] [-t] <file_path> [package_name]");
-    println!("Options:");
-    println!("  -h       Print this help message");
-    println!("  -t       Analyse trace with package name");
+    println!("-h : Help");
+    println!("<file_path> : Parse log file.");
+    println!("<file_path> <process_name> -anr : Parse process anr.");
+    println!("<file_path> <process_name> -kill : Parse process kill.");
+    println!("<file_path> <process_name> -kill -s: Parse process kill and out to terminal.");
+    println!("-t <trace_file_path> <process_name> : Parse traces file.");
 }
 
 // 定义 ANRResultBean 结构体
