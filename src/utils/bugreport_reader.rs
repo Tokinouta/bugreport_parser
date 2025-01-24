@@ -19,10 +19,12 @@ struct SectionLine {
     content: String,
 }
 
+#[derive(Debug, PartialEq)]
 enum SectionType {
     SystemLog,
     EventLog,
-    BeginNoCmd,
+    Dumpsys,
+    Other,
 }
 
 #[derive(Debug)]
@@ -30,6 +32,7 @@ struct Section {
     name: String,
     start_line: usize,
     end_line: usize,
+    section_type: SectionType,
 }
 
 #[derive(Debug)]
@@ -115,6 +118,12 @@ impl Bugreport {
                 name: content.to_string(),
                 start_line: matches.get(index - 1).unwrap().0,
                 end_line: *line_number,
+                section_type: match content.as_str() {
+                    "SYSTEM LOG" => SectionType::SystemLog,
+                    "EVENT LOG" => SectionType::EventLog,
+                    "DUMPSYS" => SectionType::Dumpsys,
+                    _ => SectionType::Other,
+                },
             };
             self.sections.push(current_section);
 
@@ -217,5 +226,18 @@ mod tests {
         }
 
         assert_eq!(bugreport.sections.len(), 134);
+
+        // find the section with the name "SYSTEM LOG"
+        let system_log_section = bugreport.sections.iter().find(|s| s.name == "SYSTEM LOG");
+        assert_eq!(system_log_section.unwrap().section_type, SectionType::SystemLog);
+        // find the section with the name "EVENT LOG"
+        let event_log_section = bugreport.sections.iter().find(|s| s.name == "EVENT LOG");
+        assert_eq!(event_log_section.unwrap().section_type, SectionType::EventLog);
+        // find the section with the name "DUMPSYS"
+        let dumpsys_section = bugreport.sections.iter().find(|s| s.name == "DUMPSYS");
+        assert_eq!(dumpsys_section.unwrap().section_type, SectionType::Dumpsys);
+        // find a section without the above names
+        let other_section = bugreport.sections.iter().find(|s| s.name != "SYSTEM LOG" && s.name != "EVENT LOG" && s.name != "DUMPSYS");
+        assert_eq!(other_section.unwrap().section_type, SectionType::Other);
     }
 }
