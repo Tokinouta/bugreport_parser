@@ -51,20 +51,20 @@ impl TraceAndFile {
 
 // 定义 ANRResultBean 结构体
 #[derive(Debug)]
-struct ANRResultBean {
+pub struct ANRResultBean {
     process_name: String,
     trace_file_list: Vec<TraceAndFile>,
 }
 
 impl ANRResultBean {
-    fn new() -> Self {
+    pub fn new() -> Self {
         ANRResultBean {
             process_name: String::new(),
             trace_file_list: Vec::new(),
         }
     }
 
-    fn set_process_name(&mut self, name: String) {
+    pub fn set_process_name(&mut self, name: String) {
         self.process_name = name;
     }
 
@@ -72,7 +72,7 @@ impl ANRResultBean {
         &self.process_name
     }
 
-    fn add_traces(&mut self, traces: &Vec<String>) -> usize {
+    pub fn add_traces(&mut self, traces: &Vec<String>) -> usize {
         let mut trace_and_file = TraceAndFile::new();
         let re = Regex::new(r"\d").unwrap();
 
@@ -99,7 +99,7 @@ impl ANRResultBean {
         }
     }
 
-    fn compare_trace(&self, traces: &mut Vec<String>) -> Option<usize> {
+    pub fn compare_trace(&self, traces: &mut Vec<String>) -> Option<usize> {
         if self.trace_file_list.is_empty() {
             return None;
         }
@@ -137,13 +137,13 @@ impl ANRResultBean {
         true
     }
 
-    fn add_log_file_path(&mut self, path: String, index: usize) {
+    pub fn add_log_file_path(&mut self, path: String, index: usize) {
         if index < self.trace_file_list.len() {
             self.trace_file_list[index].add_log_file_path(path);
         }
     }
 
-    fn write_to_file(&self, writer: &mut BufWriter<File>) -> io::Result<()> {
+    pub fn write_to_file(&self, writer: &mut BufWriter<File>) -> io::Result<()> {
         writeln!(
             writer,
             "---------------------------begin {}---------------------------",

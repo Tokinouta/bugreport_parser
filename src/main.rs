@@ -4,6 +4,7 @@ use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
+use models::anr_result_bean::ANRResultBean;
 use models::result_item_bean::ResultItemBean;
 use trace_analysis::TraceAnalysis;
 
@@ -75,49 +76,6 @@ fn print_help() {
     println!("<file_path> <process_name> -kill : Parse process kill.");
     println!("<file_path> <process_name> -kill -s: Parse process kill and out to terminal.");
     println!("-t <trace_file_path> <process_name> : Parse traces file.");
-}
-
-// 定义 ANRResultBean 结构体
-struct ANRResultBean {
-    process_name: String,
-    traces: Vec<Vec<String>>,
-    log_file_paths: Vec<String>,
-}
-
-impl ANRResultBean {
-    fn new(process_name: String) -> Self {
-        ANRResultBean {
-            process_name,
-            traces: Vec::new(),
-            log_file_paths: Vec::new(),
-        }
-    }
-
-    fn add_traces(&mut self, traces: Vec<String>) -> usize {
-        self.traces.push(traces);
-        self.traces.len() - 1
-    }
-
-    fn add_log_file_path(&mut self, path: String, index: usize) {
-        if index < self.log_file_paths.len() {
-            self.log_file_paths[index] = path;
-        } else {
-            self.log_file_paths.push(path);
-        }
-    }
-
-    fn compare_trace(&self, traces: &Vec<String>) -> isize {
-        // 实现比较逻辑
-        -1 // 占位返回值
-    }
-
-    fn write_to_file(&self, writer: &mut BufWriter<File>) -> io::Result<()> {
-        writeln!(writer, "Process: {}", self.process_name)?;
-        for trace in &self.traces {
-            writeln!(writer, "Trace: {:?}", trace)?;
-        }
-        Ok(())
-    }
 }
 
 // 解析日志文件
@@ -201,19 +159,20 @@ fn turn_result_item_to_anr_list(item_list: Vec<ResultItemBean>) -> Vec<ANRResult
 
     for item in item_list {
         let process_name = item.get_process_name().to_string();
-        let trace_list = item.get_trace_list().clone();
+        let mut trace_list = item.get_trace_list().clone();
         let out_path = item.get_out_path().to_string();
 
         if let Some(&index) = process_to_index.get(&process_name) {
             let anr_bean: &mut ANRResultBean = &mut anr_list[index];
-            let trace_index = anr_bean.compare_trace(&trace_list);
-            if trace_index < 0 {
-                anr_bean.add_traces(trace_list);
+            let trace_index = anr_bean.compare_trace(&mut trace_list);
+            if trace_index.is_none() {
+                anr_bean.add_traces(&trace_list);
             }
-            anr_bean.add_log_file_path(out_path, trace_index as usize);
+            anr_bean.add_log_file_path(out_path, trace_index.unwrap());
         } else {
-            let mut anr_bean = ANRResultBean::new(process_name.clone());
-            let index = anr_bean.add_traces(trace_list);
+            let mut anr_bean = ANRResultBean::new();
+            anr_bean.set_process_name(process_name.clone());
+            let index = anr_bean.add_traces(&mut trace_list);
             anr_bean.add_log_file_path(out_path, index);
             process_to_index.insert(process_name, anr_list.len());
             anr_list.push(anr_bean);
