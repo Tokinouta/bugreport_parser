@@ -11,12 +11,19 @@ lazy_static! {
     static ref SECTION_BEGIN_NO_CMD: Regex = Regex::new(r#"^------ ([^(]+) ------$"#).unwrap();
     static ref SECTION_END: Regex =
         Regex::new(r#"------ (\d+.\d+)s was the duration of '(.*?)(?: \(.*\))?' ------"#).unwrap();
+    static ref LOGCAT_LINE: Regex =
+        Regex::new(r#"(\d{2}-\d{2} \d{2}:\d{2}:\d{2}) +(\d+) +(\d+) ([A-Z]) ([a-zA-Z_]) *: (.*)"#)
+            .unwrap();
 }
 
 #[derive(Debug)]
-struct SectionLine {
+struct LogcatLine {
     timestamp: DateTime<Local>,
-    content: String,
+    pid: u32,
+    tid: u32,
+    level: char,
+    tag: String,
+    message: String,
 }
 
 #[derive(Debug, PartialEq)]
@@ -30,6 +37,7 @@ enum SectionType {
 #[derive(Debug)]
 struct Section {
     name: String,
+    reader: BufReader<File>,
     start_line: usize,
     end_line: usize,
     section_type: SectionType,
@@ -70,6 +78,14 @@ impl Bugreport {
 
         // Create a vector to store the line number and content of each match
         let mut matches: Vec<(usize, String)> = Vec::new();
+        let filter_and_add =
+            |matches: &mut Vec<(usize, String)>, line_number: usize, group: &str| match group {
+                "BLOCK STAT" => {}
+                l if l.ends_with("PROTO") => {}
+                _ => {
+                    matches.push((line_number, group.to_string()));
+                }
+            };
 
         for (line_number, line) in reader.lines().enumerate() {
             let line = line?;
@@ -116,8 +132,9 @@ impl Bugreport {
 
             let current_section = Section {
                 name: content.to_string(),
-                start_line: matches.get(index - 1).unwrap().0,
-                end_line: *line_number,
+                reader: BufReader::new(self.raw_file.try_clone().unwrap()),
+                start_line: matches.get(index - 1).unwrap().0+1,
+                end_line: *line_number-1,
                 section_type: match content.as_str() {
                     "SYSTEM LOG" => SectionType::SystemLog,
                     "EVENT LOG" => SectionType::EventLog,
@@ -132,13 +149,35 @@ impl Bugreport {
     }
 }
 
-fn filter_and_add(matches: &mut Vec<(usize, String)>, line_number: usize, group: &str) {
-    match group {
-        "BLOCK STAT" => {}
-        l if l.ends_with("PROTO") => {}
-        _ => {
-            matches.push((line_number, group.to_string()));
+impl Section {
+    fn parse_line(&self, line: &str) -> Option<LogcatLine> {
+        if let Some(caps) = LOGCAT_LINE.captures(line) {
+            let logcat_line = LogcatLine {
+                timestamp: NaiveDateTime::parse_from_str(
+                    caps.get(1).unwrap().as_str(),
+                    "%Y-%m-%d %H:%M:%S",
+                )
+                .map(|naive_dt| Local.from_local_datetime(&naive_dt).unwrap())
+                .unwrap(),
+                pid: caps.get(1).unwrap().as_str().parse::<u32>().unwrap(),
+                tid: caps.get(1).unwrap().as_str().parse::<u32>().unwrap(),
+                level: caps.get(2).unwrap().as_str().chars().next().unwrap(),
+                tag: caps.get(3).unwrap().as_str().to_string(),
+                message: caps.get(4).unwrap().as_str().to_string(),
+            };
+            Some(logcat_line)
+        } else {
+            None
         }
+    }
+
+    fn read_line(&mut self) -> io::Result<Option<LogcatLine>> {
+        let mut buf = String::new();
+        self.reader.read_line(&mut buf)?;
+        if buf.is_empty() {
+            return Ok(None);
+        }
+        Ok(self.parse_line(&buf))
     }
 }
 mod tests {
@@ -229,15 +268,42 @@ mod tests {
 
         // find the section with the name "SYSTEM LOG"
         let system_log_section = bugreport.sections.iter().find(|s| s.name == "SYSTEM LOG");
-        assert_eq!(system_log_section.unwrap().section_type, SectionType::SystemLog);
+        assert_eq!(
+            system_log_section.unwrap().section_type,
+            SectionType::SystemLog
+        );
         // find the section with the name "EVENT LOG"
         let event_log_section = bugreport.sections.iter().find(|s| s.name == "EVENT LOG");
-        assert_eq!(event_log_section.unwrap().section_type, SectionType::EventLog);
+        assert_eq!(
+            event_log_section.unwrap().section_type,
+            SectionType::EventLog
+        );
         // find the section with the name "DUMPSYS"
         let dumpsys_section = bugreport.sections.iter().find(|s| s.name == "DUMPSYS");
         assert_eq!(dumpsys_section.unwrap().section_type, SectionType::Dumpsys);
         // find a section without the above names
-        let other_section = bugreport.sections.iter().find(|s| s.name != "SYSTEM LOG" && s.name != "EVENT LOG" && s.name != "DUMPSYS");
+        let other_section = bugreport
+            .sections
+            .iter()
+            .find(|s| s.name != "SYSTEM LOG" && s.name != "EVENT LOG" && s.name != "DUMPSYS");
         assert_eq!(other_section.unwrap().section_type, SectionType::Other);
     }
+
+    #[test]
+    fn test_parse_line() {
+        let mut bugreport = setup().unwrap();
+        let matches = match bugreport.read_and_slice() {
+            Ok(matches) => matches,
+            Err(e) => {
+                println!("Error: {}", e);
+                return;
+            }
+        };
+        bugreport.pair_sections(&matches);
+
+        let mut system_log_section = bugreport.sections.iter_mut().find(|s| s.name == "SYSTEM LOG").unwrap();
+        let line = system_log_section.read_line().unwrap().unwrap();
+        println!("{:?}", line);
+    }
 }
+// Check if the first regex matches and capture groups

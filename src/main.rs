@@ -11,6 +11,7 @@ use trace_analysis::TraceAnalysis;
 pub mod models;
 pub mod trace_analysis;
 pub mod utils;
+pub mod cli_parser;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
