@@ -21,6 +21,24 @@ fn main() {
         return;
     }
 
+    // 检查是否提供了 "--repl" 参数
+    let run_repl = args.iter().any(|arg| arg == "--repl");
+
+    if run_repl {
+        println!("Welcome to the Rust REPL!");
+        repl();
+    } else {
+        println!("Running in single command mode.");
+        if args.len() > 1 {
+            // 如果有额外的参数，执行单次命令
+            let input = &args[1];
+            let result = evaluate_input(input);
+            println!("Result: {}", result);
+        } else {
+            println!("No command provided.");
+        }
+    }
+
     let type_arg = &args[1];
     let src_path = if type_arg.len() == 2 {
         if type_arg == "-h" {
@@ -182,9 +200,40 @@ fn turn_result_item_to_anr_list(item_list: Vec<ResultItemBean>) -> Vec<ANRResult
     anr_list
 }
 
-// fn main() {
-//     let path = Path::new("path/to/logs");
-//     let args = vec!["arg1".to_string(), "arg2".to_string()];
-//     let anr_results = parse_log(path, &args);
-//     println!("Parsed {} ANR results", anr_results.len());
-// }
+fn repl() {
+    loop {
+        // 提示用户输入
+        print!("> ");
+        io::stdout().flush().unwrap();
+
+        // 读取用户输入
+        let mut input = String::new();
+        match io::stdin().read_line(&mut input) {
+            Ok(_) => {
+                // 去除输入中的换行符
+                let input = input.trim();
+
+                // 如果用户输入 "exit"，退出 REPL
+                if input == "exit" {
+                    println!("Goodbye!");
+                    break;
+                }
+
+                // 处理输入并执行相应的操作
+                let result = evaluate_input(input);
+
+                // 输出结果
+                println!("{}", result);
+            }
+            Err(error) => {
+                eprintln!("Error reading input: {}", error);
+            }
+        }
+    }
+}
+
+fn evaluate_input(input: &str) -> String {
+    // 这里可以添加更复杂的逻辑来解析和执行输入
+    // 目前只是简单地返回输入的内容
+    format!("You entered: {}", input)
+}
