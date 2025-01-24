@@ -14,6 +14,18 @@ lazy_static! {
 }
 
 #[derive(Debug)]
+struct SectionLine {
+    timestamp: DateTime<Local>,
+    content: String,
+}
+
+enum SectionType {
+    SystemLog,
+    EventLog,
+    BeginNoCmd,
+}
+
+#[derive(Debug)]
 struct Section {
     name: String,
     start_line: usize,
@@ -22,22 +34,24 @@ struct Section {
 
 #[derive(Debug)]
 struct Bugreport {
+    raw_file: File,
     timestamp: DateTime<Local>,
     sections: Vec<Section>,
 }
 
 impl Bugreport {
-    fn new() -> Self {
-        Bugreport {
+    fn new(path: &Path) -> io::Result<Self> {
+        // Open the file
+        let raw_file = File::open(path)?;
+        Ok(Bugreport {
+            raw_file,
             timestamp: Local::now(),
             sections: Vec::new(),
-        }
+        })
     }
 
-    pub fn read_and_slice(&mut self, path: &Path) -> io::Result<Vec<(usize, String)>> {
-        // Open the file
-        let file = File::open(path)?;
-        let mut reader = BufReader::new(file);
+    pub fn read_and_slice(&mut self) -> io::Result<Vec<(usize, String)>> {
+        let mut reader = BufReader::new(&self.raw_file);
 
         let mut buf = String::new();
         reader.read_line(&mut buf)?;
@@ -120,14 +134,59 @@ fn filter_and_add(matches: &mut Vec<(usize, String)>, line_number: usize, group:
 }
 mod tests {
     use chrono::{NaiveDate, TimeZone};
+    use std::{fs, path::PathBuf};
+    use zip::ZipArchive;
 
     use super::*;
+
+    fn setup() -> io::Result<Bugreport> {
+        let file_path = Path::new("tests/data/example.txt");
+        if !Path::new(file_path).exists() {
+            println!(
+                "File '{}' does not exist. Extracting from ZIP...",
+                file_path.to_str().unwrap()
+            );
+
+            // ZIP 文件路径
+            let zip_path = Path::new("tests/data/example.zip");
+
+            // 打开 ZIP 文件
+            let zip_file = File::open(zip_path)?;
+            let mut archive = ZipArchive::new(zip_file)?;
+
+            // 解压整个 ZIP 文件
+            for i in 0..archive.len() {
+                let mut file = archive.by_index(i)?;
+                let file_name = file.name();
+
+                let mut file_path = PathBuf::from("tests/data");
+                file_path.push(file_name);
+                println!("Extracting {}...", file_path.display());
+
+                // 创建目标文件或目录
+                if file.is_dir() {
+                    fs::create_dir_all(file_path)?;
+                } else {
+                    if let Some(parent) = Path::new(&file_path).parent() {
+                        if !parent.exists() {
+                            fs::create_dir_all(parent)?;
+                        }
+                    }
+
+                    let mut output_file = File::create(file_path)?;
+                    io::copy(&mut file, &mut output_file)?;
+                }
+            }
+
+            println!("Extraction complete.");
+        }
+        Ok(Bugreport::new(file_path).unwrap())
+    }
+
     #[test]
     fn test_read_and_slice() {
-        let mut bugreport = Bugreport::new();
-        let matches = bugreport
-            .read_and_slice(Path::new("tests/data/example.txt"))
-            .unwrap();
+        let mut bugreport = setup().unwrap();
+        let matches = bugreport.read_and_slice().unwrap();
         assert_eq!(matches.len(), 274);
         assert_eq!(
             bugreport.timestamp,
@@ -144,15 +203,14 @@ mod tests {
 
     #[test]
     fn test_pair_sections() {
-        let mut bugreport = Bugreport::new();
-        let matches = match bugreport.read_and_slice(Path::new("tests/data/example.txt")) {
+        let mut bugreport = setup().unwrap();
+        let matches = match bugreport.read_and_slice() {
             Ok(matches) => matches,
             Err(e) => {
                 println!("Error: {}", e);
                 return;
             }
         };
-        let mut bugreport = Bugreport::new();
         bugreport.pair_sections(&matches);
         for section in bugreport.sections.iter() {
             println!("{:?}", section);
