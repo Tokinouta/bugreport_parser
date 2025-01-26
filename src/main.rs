@@ -4,6 +4,8 @@ use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
+use clap::Parser;
+use cli_parser::{Cli, Mode};
 use models::anr_result_bean::ANRResultBean;
 use models::result_item_bean::ResultItemBean;
 use trace_analysis::TraceAnalysis;
@@ -14,75 +16,45 @@ pub mod utils;
 pub mod cli_parser;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let args = Cli::parse();
 
-    // 检查是否提供了文件名
-    if args.len() < 2 {
-        eprintln!("error: please input the file name.");
+    if args.repl {
+        println!("Welcome to the Rust REPL!");
+        repl();
         return;
     }
 
-    // 检查是否提供了 "--repl" 参数
-    let run_repl = args.iter().any(|arg| arg == "--repl");
-
-    if run_repl {
-        println!("Welcome to the Rust REPL!");
-        repl();
-    } else {
-        println!("Running in single command mode.");
-        if args.len() > 1 {
-            // 如果有额外的参数，执行单次命令
-            let input = &args[1];
-            let result = evaluate_input(input);
-            println!("Result: {}", result);
-        } else {
-            println!("No command provided.");
-        }
-    }
-
-    let type_arg = &args[1];
-    let src_path = if type_arg.len() == 2 {
-        if type_arg == "-h" {
-            print_help();
-            return;
-        }
-        if args.len() < 3 {
-            eprintln!("error: please input the file name.");
-            return;
-        }
-        &args[2]
-    } else {
-        &args[1]
-    };
-
     // 检查文件路径是否为空
-    if src_path.is_empty() {
-        eprintln!("error: please input the file name.");
+    if args.file_path.is_none() {
+        eprintln!("Error: Please input the file name.");
         return;
     }
 
     // 检查文件是否存在
-    let file_path = Path::new(src_path);
+    let p = args.file_path.unwrap();
+    let file_path = Path::new(&p);
     if !file_path.exists() {
-        eprintln!("Error: The file: {} is not exist", file_path.display());
+        eprintln!("Error: The file '{}' does not exist.", file_path.display());
         return;
     }
 
-    // 根据类型参数处理逻辑
-    if type_arg == "-t" {
-        if args.len() < 4 {
-            eprintln!("Error: Please input package name while analyse trace only.");
-            return;
+    // 根据模式处理逻辑
+    match args.mode {
+        Mode::Parse => {
+            if let Some(process_name) = args.process_name {
+                parse_log(file_path, &[process_name]);
+            } else {
+                eprintln!("Error: Please provide a process name for parse mode.");
+            }
         }
-        let package_name = &args[3];
-        if package_name.is_empty() {
-            eprintln!("Error: Please input package name while analyse trace only.");
-            return;
+        Mode::AnalyseTrace => {
+            if let Some(process_name) = args.process_name {
+                let mut analysis = TraceAnalysis::new();
+                // analysis.analyse_trace(file_path, &process_name);
+            } else {
+                eprintln!("Error: Please provide a process name for analyse trace mode.");
+            }
         }
-        let analysis = TraceAnalysis::new();
-        // analysis.analyse_trace(file_path, package_name);
-    } else {
-        parse_log(file_path, &args);
     }
 
     println!("Done!");
