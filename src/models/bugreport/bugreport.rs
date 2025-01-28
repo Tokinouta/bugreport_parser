@@ -1,85 +1,23 @@
-use std::fmt::{self, Display, Formatter};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 
 use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone};
-use lazy_static::lazy_static;
-use regex::Regex;
 
-lazy_static! {
-    static ref SECTION_BEGIN: Regex = Regex::new(r#"------ (.*?)(?: \((.*)\)) ------"#).unwrap();
-    static ref SECTION_BEGIN_NO_CMD: Regex = Regex::new(r#"^------ ([^(]+) ------$"#).unwrap();
-    static ref SECTION_END: Regex =
-        Regex::new(r#"------ (\d+.\d+)s was the duration of '(.*?)(?: \(.*\))?' ------"#).unwrap();
-    static ref LOGCAT_LINE: Regex = Regex::new(
-        r#"(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) +(\w+) +(\d+) +(\d+) ([A-Z]) ([a-zA-Z_]) *: (.*)"#
-    )
-    .unwrap();
-}
+use crate::models::bugreport::section::SectionContent;
+
+use super::section::Section;
+use super::{SECTION_BEGIN, SECTION_BEGIN_NO_CMD, SECTION_END};
 
 #[derive(Debug)]
-struct LogcatLine {
-    timestamp: DateTime<Local>,
-    user: String,
-    pid: u32,
-    tid: u32,
-    level: char,
-    tag: String,
-    message: String,
-}
-
-impl LogcatLine {
-    fn search() {}
-}
-
-impl Display for LogcatLine {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} {} {} {} {}",
-            self.timestamp, self.pid, self.tid, self.level, self.tag
-        )
-    }
-}
-
-#[derive(Debug)]
-enum SectionContent {
-    SystemLog(Vec<LogcatLine>),
-    EventLog(Vec<LogcatLine>),
-    Dumpsys,
-    Other,
-}
-
-impl PartialEq for SectionContent {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::SystemLog(_), Self::SystemLog(_)) => true,
-            (Self::EventLog(_), Self::EventLog(_)) => true,
-            (Self::Dumpsys, Self::Dumpsys) => true,
-            (Self::Other, Self::Other) => true,
-            _ => false,
-        }
-    }
-}
-
-#[derive(Debug)]
-struct Section {
-    name: String,
-    start_line: usize,
-    end_line: usize,
-    content: SectionContent,
-}
-
-#[derive(Debug)]
-struct Bugreport {
+pub struct Bugreport {
     raw_file: File,
     timestamp: DateTime<Local>,
     sections: Vec<Section>,
 }
 
 impl Bugreport {
-    fn new(path: &Path) -> io::Result<Self> {
+    pub fn new(path: &Path) -> io::Result<Self> {
         // Open the file
         let raw_file = File::open(path)?;
         Ok(Bugreport {
@@ -164,69 +102,27 @@ impl Bugreport {
                 continue;
             }
 
-            let mut current_section = Section {
-                name: content.to_string(),
-                // reader: BufReader::new(self.raw_file.try_clone().unwrap()),
-                start_line: matches.get(index - 1).unwrap().0 + 1,
-                end_line: *line_number - 1,
-                content: match content.as_str() {
+            let start_line = matches.get(index - 1).unwrap().0;
+            let end_line = *line_number;
+            let mut current_section = Section::new(
+                content.to_string(),
+                start_line + 1,
+                end_line - 1,
+                match content.as_str() {
                     "SYSTEM LOG" => SectionContent::SystemLog(Vec::new()),
                     "EVENT LOG" => SectionContent::EventLog(Vec::new()),
                     "DUMPSYS" => SectionContent::Dumpsys,
                     _ => SectionContent::Other,
                 },
-            };
+            );
 
-            current_section
-                .read_lines(&lines[current_section.start_line..current_section.end_line + 1], self.timestamp.year());
+            current_section.read_lines(&lines[start_line + 1..end_line], self.timestamp.year());
 
             println!("{:?}", current_section);
             self.sections.push(current_section);
 
             second_occurance = false;
         }
-    }
-}
-
-impl Section {
-    // TODO: add a argument for the year
-    fn parse_line(line: &str, year: i32) -> Option<LogcatLine> {
-        if let Some(caps) = LOGCAT_LINE.captures(line) {
-            let time_str: String = format!("{year}-{}", caps.get(1).unwrap().as_str());
-            let logcat_line = LogcatLine {
-                timestamp: NaiveDateTime::parse_from_str(
-                    time_str.as_str(),
-                    "%Y-%m-%d %H:%M:%S.%3f",
-                )
-                .map(|naive_dt| Local.from_local_datetime(&naive_dt).unwrap())
-                .unwrap(),
-                user: caps.get(2).unwrap().as_str().to_string(),
-                pid: caps.get(3).unwrap().as_str().parse::<u32>().unwrap(),
-                tid: caps.get(4).unwrap().as_str().parse::<u32>().unwrap(),
-                level: caps.get(5).unwrap().as_str().chars().next().unwrap(),
-                tag: caps.get(6).unwrap().as_str().to_string(),
-                message: caps.get(7).unwrap().as_str().to_string(),
-            };
-            println!("{:?}", logcat_line);
-            Some(logcat_line)
-        } else {
-            None
-        }
-    }
-
-    fn read_lines(&mut self, lines: &[String], year: i32) {
-        match self.content {
-            SectionContent::SystemLog(ref mut s) | SectionContent::EventLog(ref mut s) => {
-                println!("{}", lines.len());
-                // read from start_line to end_line and parse each line
-                for line in lines.into_iter() {
-                    if let Some(logcat_line) = Section::parse_line(&line, year) {
-                        s.push(logcat_line);
-                    };
-                }
-            }
-            _ => {}
-        };
     }
 }
 
