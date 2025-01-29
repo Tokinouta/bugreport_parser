@@ -1,5 +1,5 @@
 use super::{logcat::LogcatLine, LOGCAT_LINE};
-use chrono::{Local, NaiveDateTime, TimeZone};
+use chrono::{Duration, Local, NaiveDateTime, TimeZone};
 
 #[derive(Debug)]
 pub enum SectionContent {
@@ -87,6 +87,26 @@ impl Section {
         }
         Some(result)
     }
+
+    fn search_by_time(&self, time: &str) -> Option<Vec<&LogcatLine>> {
+        let content = match self.content {
+            SectionContent::SystemLog(ref s) | SectionContent::EventLog(ref s) => s,
+            _ => return None,
+        };
+        let time = NaiveDateTime::parse_from_str(time, "%Y-%m-%d %H:%M:%S")
+            .map(|naive_dt| Local.from_local_datetime(&naive_dt).unwrap())
+            .unwrap();
+
+        let mut result = Vec::new();
+        for line in content {
+            if line.timestamp - time <= Duration::seconds(1)
+                && line.timestamp - time >= Duration::seconds(-1)
+            {
+                result.push(line);
+            }
+        }
+        Some(result)
+    }
 }
 
 mod tests {
@@ -116,5 +136,31 @@ mod tests {
         let result = section.search_by_tag("GestureStubView");
         println!("{:?}", result.clone().unwrap());
         assert_eq!(result.unwrap().len(), 3);
+    }
+
+    #[test]
+    fn test_search_by_time() {
+        let logcat = r#"
+08-16 10:01:30.003  1000  5098  5850 D LocalBluetoothAdapter: isSupportBluetoothRestrict = 0
+08-16 10:01:31.003 10160  5140  5140 D RecentsImpl: hideNavStubView
+08-16 10:01:32.003 10160  5140  5140 D NavStubView_Touch: setKeepHidden    old=false   new=true
+08-16 10:01:33.003 10160  5140  5300 D GestureStubView_Touch: setKeepHidden    old=false   new=false
+08-16 10:01:34.003  1000  2270  5305 D PerfShielderService: com.android.systemui|StatusBar|171|1389485333739|171|0|1
+08-16 10:01:35.003 10160  5140  5300 W GestureStubView: adaptRotation   currentRotation=0   mRotation=0
+08-16 10:01:36.003 10160  5140  5300 D GestureStubView: resetRenderProperty: showGestureStub   isLayoutParamChanged=false
+08-16 10:01:37.003 10160  5140  5300 D GestureStubView_Touch: disableTouch    old=false   new=false
+08-16 10:01:38.003 10160  5140  5300 D GestureStubView: showGestureStub
+08-16 10:01:39.003 10160  5140  5300 D GestureStubView_Touch: setKeepHidden    old=false   new=false
+"#.trim().split("\n").map(|s| s.to_string()).collect::<Vec<String>>();
+        let mut section = Section::new(
+            "SYSTEM LOG".to_string(),
+            0,
+            10,
+            SectionContent::SystemLog(Vec::new()),
+        );
+        section.read_lines(&logcat, 2024);
+        let result = section.search_by_time("2024-08-16 10:01:34");
+        println!("{:?}", result.clone().unwrap());
+        assert_eq!(result.unwrap().len(), 2);
     }
 }
