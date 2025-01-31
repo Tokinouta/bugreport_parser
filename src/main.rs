@@ -1,19 +1,23 @@
+use rustyline::error::ReadlineError;
+use rustyline::{DefaultEditor, Result};
 use std::collections::HashMap;
-use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::rc::Rc;
 
 use clap::Parser;
 use cli_parser::{Cli, Mode};
 use models::anr_result_bean::ANRResultBean;
+use models::bugreport::bugreport::Bugreport;
+use models::bugreport::logcat::LogcatLine;
 use models::result_item_bean::ResultItemBean;
 use trace_analysis::TraceAnalysis;
 
+pub mod cli_parser;
 pub mod models;
 pub mod trace_analysis;
 pub mod utils;
-pub mod cli_parser;
 
 fn main() {
     let args = Cli::parse();
@@ -173,18 +177,44 @@ fn turn_result_item_to_anr_list(item_list: Vec<ResultItemBean>) -> Vec<ANRResult
     anr_list
 }
 
-fn repl() {
-    loop {
-        // 提示用户输入
-        print!("> ");
-        io::stdout().flush().unwrap();
+enum ReplStatus {
+    Ready,
+    Logcat,
+}
 
-        // 读取用户输入
-        let mut input = String::new();
-        match io::stdin().read_line(&mut input) {
-            Ok(_) => {
+struct ReplState {
+    bugreport: Bugreport,
+    status: ReplStatus,
+    last_command: String,
+    last_result: Rc<Vec<LogcatLine>>,
+}
+
+fn repl() {
+    let mut rl = DefaultEditor::new().unwrap();
+    let mut bugreport = match Bugreport::new(Path::new("tests/data/example.txt")) {
+        Ok(bugreport) => bugreport,
+        Err(_) => return,
+    };
+
+    let matches = match bugreport.read_and_slice() {
+        Ok(matches) => matches,
+        Err(_) => return,
+    };
+    bugreport.pair_sections(&matches);
+    let mut state = ReplState {
+        bugreport,
+        status: ReplStatus::Ready,
+        last_command: String::new(),
+        last_result: Rc::new(Vec::new()),
+    };
+
+    loop {
+        let readline = rl.readline(">> ");
+        match readline {
+            Ok(line) => {
+                rl.add_history_entry(line.as_str());
                 // 去除输入中的换行符
-                let input = input.trim();
+                let input = line.trim();
 
                 // 如果用户输入 "exit"，退出 REPL
                 if input == "exit" {
@@ -193,20 +223,64 @@ fn repl() {
                 }
 
                 // 处理输入并执行相应的操作
-                let result = evaluate_input(input);
+                let result = evaluate_input(input, &mut state);
 
                 // 输出结果
                 println!("{}", result);
             }
-            Err(error) => {
-                eprintln!("Error reading input: {}", error);
+            Err(ReadlineError::Interrupted) => {
+                println!("CTRL-C");
+                break;
+            }
+            Err(ReadlineError::Eof) => {
+                println!("CTRL-D");
+                break;
+            }
+            Err(err) => {
+                println!("Error: {:?}", err);
+                break;
             }
         }
     }
 }
 
-fn evaluate_input(input: &str) -> String {
+fn evaluate_input(input: &str, state: &mut ReplState) -> String {
     // 这里可以添加更复杂的逻辑来解析和执行输入
     // 目前只是简单地返回输入的内容
-    format!("You entered: {}", input)
+    format!("You entered: {}", input);
+
+    // get all the sections with name "EVENT LOG" or "SYSTEM LOG"
+    let sections = state
+        .bugreport
+        .get_sections()
+        .iter()
+        .filter(|s| s.name == "EVENT LOG" || s.name == "SYSTEM LOG")
+        .collect::<Vec<_>>();
+
+    if input.starts_with("tag") {
+        // 解析 tag 命令
+        let parts: Vec<&str> = input.split_whitespace().collect();
+        if parts.len() != 2 {
+            return "Invalid tag command. Usage: tag <tag_name>".to_string();
+        }
+        let tag_name = parts[1];
+
+        // 执行 tag 命令
+        let results = if state.last_result.len() > 0 {
+            LogcatLine::search_by_tag(tag_name, state.last_result.to_vec())
+        } else {
+            let mut temp_results = Vec::new();
+            for section in sections {
+                if let Some(result) = section.search_by_tag(tag_name) {
+                    temp_results.extend(result);
+                }
+            }
+            temp_results
+        };
+        state.last_result = Rc::new(results.clone());
+
+        return format!("Tagged results: {:?}", results);
+    }
+
+    "Ok".to_string()
 }

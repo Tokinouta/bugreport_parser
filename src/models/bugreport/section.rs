@@ -73,7 +73,7 @@ impl Section {
         };
     }
 
-    fn search_by_tag(&self, tag: &str) -> Option<Vec<&LogcatLine>> {
+    pub fn search_by_tag(&self, tag: &str) -> Option<Vec<LogcatLine>> {
         let content = match self.content {
             SectionContent::SystemLog(ref s) | SectionContent::EventLog(ref s) => s,
             _ => return None,
@@ -82,13 +82,13 @@ impl Section {
         let mut result = Vec::new();
         for line in content {
             if line.tag == tag {
-                result.push(line);
+                result.push(line.clone());
             }
         }
         Some(result)
     }
 
-    fn search_by_time(&self, time: &str) -> Option<Vec<&LogcatLine>> {
+    pub fn search_by_time(&self, time: &str) -> Option<Vec<LogcatLine>> {
         let content = match self.content {
             SectionContent::SystemLog(ref s) | SectionContent::EventLog(ref s) => s,
             _ => return None,
@@ -102,7 +102,7 @@ impl Section {
             if line.timestamp - time <= Duration::seconds(1)
                 && line.timestamp - time >= Duration::seconds(-1)
             {
-                result.push(line);
+                result.push(line.clone());
             }
         }
         Some(result)

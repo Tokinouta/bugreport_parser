@@ -118,11 +118,15 @@ impl Bugreport {
 
             current_section.read_lines(&lines[start_line + 1..end_line], self.timestamp.year());
 
-            println!("{:?}", current_section);
+            // println!("{:?}", current_section);
             self.sections.push(current_section);
 
             second_occurance = false;
         }
+    }
+
+    pub fn get_sections(&self) -> &Vec<Section> {
+        &self.sections
     }
 }
 

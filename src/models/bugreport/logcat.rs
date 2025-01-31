@@ -1,7 +1,7 @@
 use chrono::{DateTime, Local};
 use std::fmt::{self, Display, Formatter};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LogcatLine {
     pub timestamp: DateTime<Local>,
     pub user: String,
@@ -31,6 +31,10 @@ impl LogcatLine {
             tag,
             message,
         }
+    }
+
+    pub fn search_by_tag(tag: &str, lines: Vec<LogcatLine>) -> Vec<LogcatLine> {
+        lines.into_iter().filter(|line| line.tag.contains(tag)).collect()
     }
 }
 
