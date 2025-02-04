@@ -1,5 +1,8 @@
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+
 use std::fmt::{self, Display, Formatter};
+
+use super::LOGCAT_LINE;
 
 #[derive(Debug, Clone)]
 pub struct LogcatLine {
@@ -30,6 +33,26 @@ impl LogcatLine {
             level,
             tag,
             message,
+        }
+    }
+
+    pub fn parse_line(line: &str, year: i32) -> Option<Self> {
+        if let Some(caps) = LOGCAT_LINE.captures(line) {
+            let time_str: String = format!("{year}-{}", caps.get(1).unwrap().as_str());
+            let logcat_line = Self::new(
+                NaiveDateTime::parse_from_str(time_str.as_str(), "%Y-%m-%d %H:%M:%S.%3f")
+                    .map(|naive_dt| Local.from_local_datetime(&naive_dt).unwrap())
+                    .unwrap(),
+                caps.get(2).unwrap().as_str().to_string(),
+                caps.get(3).unwrap().as_str().parse::<u32>().unwrap(),
+                caps.get(4).unwrap().as_str().parse::<u32>().unwrap(),
+                caps.get(5).unwrap().as_str().chars().next().unwrap(),
+                caps.get(6).unwrap().as_str().to_string(),
+                caps.get(7).unwrap().as_str().trim().to_string(),
+            );
+            Some(logcat_line)
+        } else {
+            None
         }
     }
 

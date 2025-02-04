@@ -1,11 +1,11 @@
-use super::{logcat::LogcatLine, LOGCAT_LINE};
+use super::{dumpsys::Dumpsys, logcat::LogcatLine};
 use chrono::{Duration, Local, NaiveDateTime, TimeZone};
 
 #[derive(Debug)]
 pub enum SectionContent {
     SystemLog(Vec<LogcatLine>),
     EventLog(Vec<LogcatLine>),
-    Dumpsys,
+    Dumpsys(Dumpsys),
     Other,
 }
 
@@ -14,7 +14,7 @@ impl PartialEq for SectionContent {
         match (self, other) {
             (Self::SystemLog(_), Self::SystemLog(_)) => true,
             (Self::EventLog(_), Self::EventLog(_)) => true,
-            (Self::Dumpsys, Self::Dumpsys) => true,
+            (Self::Dumpsys(_), Self::Dumpsys(_)) => true,
             (Self::Other, Self::Other) => true,
             _ => false,
         }
@@ -39,35 +39,30 @@ impl Section {
         }
     }
 
-    fn parse_line(line: &str, year: i32) -> Option<LogcatLine> {
-        if let Some(caps) = LOGCAT_LINE.captures(line) {
-            let time_str: String = format!("{year}-{}", caps.get(1).unwrap().as_str());
-            let logcat_line = LogcatLine::new(
-                NaiveDateTime::parse_from_str(time_str.as_str(), "%Y-%m-%d %H:%M:%S.%3f")
-                    .map(|naive_dt| Local.from_local_datetime(&naive_dt).unwrap())
-                    .unwrap(),
-                caps.get(2).unwrap().as_str().to_string(),
-                caps.get(3).unwrap().as_str().parse::<u32>().unwrap(),
-                caps.get(4).unwrap().as_str().parse::<u32>().unwrap(),
-                caps.get(5).unwrap().as_str().chars().next().unwrap(),
-                caps.get(6).unwrap().as_str().to_string(),
-                caps.get(7).unwrap().as_str().to_string(),
-            );
-            Some(logcat_line)
-        } else {
-            None
-        }
+    pub fn get_line_numbers(&self) -> usize {
+        self.end_line - self.start_line
     }
 
-    pub fn read_lines(&mut self, lines: &[String], year: i32) {
+    pub fn parse(&mut self, lines: &[String], year: i32) {
+        println!("Parsing section: {}", lines.len());
         match self.content {
             SectionContent::SystemLog(ref mut s) | SectionContent::EventLog(ref mut s) => {
                 // read from start_line to end_line and parse each line
-                for line in lines.into_iter() {
-                    if let Some(logcat_line) = Section::parse_line(&line, year) {
+                let mut no_such_line = Vec::new();
+                let mut last = 0;
+                for (i, line) in lines.into_iter().enumerate() {
+                    if let Some(logcat_line) = LogcatLine::parse_line(&line, year) {
                         s.push(logcat_line);
+                        if i - last > 1 {
+                            no_such_line.push(i - 1);
+                        }
+                        last = i;
                     };
                 }
+                println!("No such line: {:?}", no_such_line);
+            }
+            SectionContent::Dumpsys(ref mut s) => {
+                s.parse(lines, year);
             }
             _ => {}
         };
@@ -132,7 +127,7 @@ mod tests {
             10,
             SectionContent::SystemLog(Vec::new()),
         );
-        section.read_lines(&logcat, 2024);
+        section.parse(&logcat, 2024);
         let result = section.search_by_tag("GestureStubView");
         println!("{:?}", result.clone().unwrap());
         assert_eq!(result.unwrap().len(), 3);
@@ -158,7 +153,7 @@ mod tests {
             10,
             SectionContent::SystemLog(Vec::new()),
         );
-        section.read_lines(&logcat, 2024);
+        section.parse(&logcat, 2024);
         let result = section.search_by_time("2024-08-16 10:01:34");
         println!("{:?}", result.clone().unwrap());
         assert_eq!(result.unwrap().len(), 2);

@@ -6,6 +6,7 @@ use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone};
 
 use crate::models::bugreport::section::SectionContent;
 
+use super::dumpsys::Dumpsys;
 use super::section::Section;
 use super::{SECTION_BEGIN, SECTION_BEGIN_NO_CMD, SECTION_END};
 
@@ -78,9 +79,9 @@ impl Bugreport {
         }
 
         // Output all the matches stored in the variable
-        // for (line_number, content) in &matches {
-        //     println!("Line {}: {}", line_number, content);
-        // }
+        for (line_number, content) in &matches {
+            println!("Line {}: {}", line_number, content);
+        }
 
         Ok(matches)
     }
@@ -111,12 +112,12 @@ impl Bugreport {
                 match content.as_str() {
                     "SYSTEM LOG" => SectionContent::SystemLog(Vec::new()),
                     "EVENT LOG" => SectionContent::EventLog(Vec::new()),
-                    "DUMPSYS" => SectionContent::Dumpsys,
+                    "DUMPSYS" => SectionContent::Dumpsys(Dumpsys::new()),
                     _ => SectionContent::Other,
                 },
             );
 
-            current_section.read_lines(&lines[start_line + 1..end_line], self.timestamp.year());
+            current_section.parse(&lines[start_line + 1..end_line], self.timestamp.year());
 
             // println!("{:?}", current_section);
             self.sections.push(current_section);
@@ -210,9 +211,9 @@ mod tests {
             }
         };
         bugreport.pair_sections(&matches);
-        for section in bugreport.sections.iter() {
-            println!("{:?}", section);
-        }
+        // for section in bugreport.sections.iter() {
+        //     println!("{:?}", section);
+        // }
 
         assert_eq!(bugreport.sections.len(), 134);
 
@@ -230,7 +231,7 @@ mod tests {
         );
         // find the section with the name "DUMPSYS"
         let dumpsys_section = bugreport.sections.iter().find(|s| s.name == "DUMPSYS");
-        assert_eq!(dumpsys_section.unwrap().content, SectionContent::Dumpsys);
+        assert_eq!(dumpsys_section.unwrap().content, SectionContent::Dumpsys(Dumpsys::new()));
         // find a section without the above names
         let other_section = bugreport
             .sections
@@ -261,7 +262,7 @@ mod tests {
             _ => panic!("Expected SystemLog section type"),
         };
 
-        println!("{:?}", system_log_section);
+        assert_eq!(lines.len(), system_log_section.get_line_numbers());
     }
 }
 // Check if the first regex matches and capture groups
