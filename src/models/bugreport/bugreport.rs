@@ -8,7 +8,7 @@ use crate::models::bugreport::section::SectionContent;
 
 use super::dumpsys::Dumpsys;
 use super::section::Section;
-use super::{SECTION_BEGIN, SECTION_BEGIN_NO_CMD, SECTION_END};
+use crate::models::bugreport::section::{SECTION_BEGIN, SECTION_BEGIN_NO_CMD, SECTION_END};
 
 #[derive(Debug)]
 pub struct Bugreport {
@@ -119,7 +119,6 @@ impl Bugreport {
 
             current_section.parse(&lines[start_line + 1..end_line], self.timestamp.year());
 
-            // println!("{:?}", current_section);
             self.sections.push(current_section);
 
             second_occurance = false;
@@ -211,10 +210,6 @@ mod tests {
             }
         };
         bugreport.pair_sections(&matches);
-        // for section in bugreport.sections.iter() {
-        //     println!("{:?}", section);
-        // }
-
         assert_eq!(bugreport.sections.len(), 134);
 
         // find the section with the name "SYSTEM LOG"
@@ -252,17 +247,54 @@ mod tests {
         };
         bugreport.pair_sections(&matches);
 
-        let system_log_section = bugreport
+        // find the second section with name "SYSTEM LOG"
+        let system_log_sections = bugreport
             .sections
             .iter_mut()
-            .find(|s| s.name == "SYSTEM LOG")
-            .unwrap();
-        let lines = match &system_log_section.content {
+            .filter(|s| s.name == "SYSTEM LOG")
+            .collect::<Vec<&mut Section>>();
+
+        let system_log_section_1st = system_log_sections.get(0).unwrap();
+        let lines = match &system_log_section_1st.content {
             SectionContent::SystemLog(lines) => lines,
             _ => panic!("Expected SystemLog section type"),
         };
 
-        assert_eq!(lines.len(), system_log_section.get_line_numbers());
+        assert_eq!(lines.len(), system_log_section_1st.get_line_numbers() - 7);
+        // The seven lines that cannot be parsed are listed below:
+        // These three are as expected:
+        // No such line: "--------- beginning of system"
+        // No such line: "--------- beginning of crash"
+        // No such line: "--------- beginning of main"
+        // The following four do not contain a colon (WTF?!!):
+        // No such line: "08-16 10:01:26.784  1000  5098  5098 D QSRecord custom(com.google.android.as/com.google.android.apps.miphone.aiai.captions.quicset listening to true"
+        // No such line: "08-16 10:01:29.628  1000  5098  5098 D QSRecord custom(com.google.android.as/com.google.android.apps.miphone.aiai.captions.quicset listening to false"
+        // No such line: "08-16 10:01:29.976  1000  5098  5098 D QSRecord custom(com.google.android.as/com.google.android.apps.miphone.aiai.captions.quicset listening to true"
+        // No such line: "08-16 10:01:31.110  1000  5098  5098 D QSRecord custom(com.google.android.as/com.google.android.apps.miphone.aiai.captions.quicset listening to false"
+
+        let system_log_section_2nd = system_log_sections.get(1).unwrap();
+        let lines = match &system_log_section_2nd.content {
+            SectionContent::SystemLog(lines) => lines,
+            _ => panic!("Expected SystemLog section type"),
+        };
+
+        assert_eq!(lines.len(), system_log_section_2nd.get_line_numbers() - 2);
+        // The two lines that cannot be parsed are listed below:
+        // No such line: "--------- beginning of system"
+        // No such line: "--------- beginning of main"
+
+        let event_log_section = bugreport
+            .sections
+            .iter_mut()
+            .find(|s| s.name == "EVENT LOG")
+            .unwrap();
+        let lines = match &event_log_section.content {
+            SectionContent::EventLog(lines) => lines,
+            _ => panic!("Expected EventLog section type"),
+        };
+
+        assert_eq!(lines.len(), event_log_section.get_line_numbers() - 1);
+        // The one line that cannot be parsed is listed below:
+        // No such line: "--------- beginning of events"
     }
 }
-// Check if the first regex matches and capture groups

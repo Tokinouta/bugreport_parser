@@ -1,5 +1,14 @@
 use super::{dumpsys::Dumpsys, logcat::LogcatLine};
 use chrono::{Duration, Local, NaiveDateTime, TimeZone};
+use lazy_static::lazy_static;
+use regex::Regex;
+
+lazy_static! {
+    pub static ref SECTION_BEGIN: Regex = Regex::new(r#"------ (.*?)(?: \((.*)\)) ------"#).unwrap();
+    pub static ref SECTION_BEGIN_NO_CMD: Regex = Regex::new(r#"^------ ([^(]+) ------$"#).unwrap();
+    pub static ref SECTION_END: Regex =
+        Regex::new(r#"------ (\d+.\d+)s was the duration of '(.*?)(?: \(.*\))?' ------"#).unwrap();
+}
 
 #[derive(Debug)]
 pub enum SectionContent {
@@ -55,6 +64,7 @@ impl Section {
                         s.push(logcat_line);
                         if i - last > 1 {
                             no_such_line.push(i - 1);
+                            println!("No such line: {:?}", lines[i - 1]);
                         }
                         last = i;
                     };

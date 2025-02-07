@@ -1,8 +1,14 @@
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
-
+use lazy_static::lazy_static;
+use regex::Regex;
 use std::fmt::{self, Display, Formatter};
 
-use super::LOGCAT_LINE;
+lazy_static! {
+    pub(crate) static ref LOGCAT_LINE: Regex = Regex::new(
+        r#"(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) +(\w+) +(\d+) +(\d+) ([A-Z]) ([^:]+) *:(.*)"#
+    )
+    .unwrap();
+}
 
 #[derive(Debug, Clone)]
 pub struct LogcatLine {
@@ -57,7 +63,10 @@ impl LogcatLine {
     }
 
     pub fn search_by_tag(tag: &str, lines: Vec<LogcatLine>) -> Vec<LogcatLine> {
-        lines.into_iter().filter(|line| line.tag.contains(tag)).collect()
+        lines
+            .into_iter()
+            .filter(|line| line.tag.contains(tag))
+            .collect()
     }
 }
 
