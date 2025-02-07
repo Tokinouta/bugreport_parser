@@ -114,6 +114,22 @@ impl Section {
     }
 }
 
+impl Section {
+    // pair input_focus logs within event log
+    // 第一步通过 dump of service greezer 找到用户开关屏幕的时间点，也可以考虑通过 screen_toggled 0
+    // 第二步根据上述开关屏时间点找当时的 input_focus 记录，看看每一个时间点的 focus 到底在哪里
+    // 第三步看 wm 生命周期，看能不能跟 focus 记录对上
+    pub fn pair_input_focus(&self, event_log: &[LogcatLine]) -> Vec<(LogcatLine, LogcatLine)> {
+        let mut result = Vec::new();
+        for line in event_log {
+            if line.tag == "InputFocus" {
+                result.push(line.clone());
+            }
+        }
+        result
+    }
+}
+
 mod tests {
     use super::*;
 
