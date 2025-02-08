@@ -12,9 +12,9 @@ use crate::models::bugreport::section::{SECTION_BEGIN, SECTION_BEGIN_NO_CMD, SEC
 
 #[derive(Debug)]
 pub struct Bugreport {
-    raw_file: File,
-    timestamp: DateTime<Local>,
-    sections: Vec<Section>,
+    pub raw_file: File,
+    pub timestamp: DateTime<Local>,
+    pub sections: Vec<Section>,
 }
 
 impl Bugreport {
@@ -130,6 +130,50 @@ impl Bugreport {
     }
 }
 
+pub fn test_setup_bugreport() -> io::Result<Bugreport> {
+    let file_path = Path::new("tests/data/example.txt");
+    if !Path::new(file_path).exists() {
+        println!(
+            "File '{}' does not exist. Extracting from ZIP...",
+            file_path.to_str().unwrap()
+        );
+
+        // ZIP 文件路径
+        let zip_path = Path::new("tests/data/example.zip");
+
+        // 打开 ZIP 文件
+        let zip_file = File::open(zip_path)?;
+        let mut archive = zip::ZipArchive::new(zip_file)?;
+
+        // 解压整个 ZIP 文件
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i)?;
+            let file_name = file.name();
+
+            let mut file_path = std::path::PathBuf::from("tests/data");
+            file_path.push(file_name);
+            println!("Extracting {}...", file_path.display());
+
+            // 创建目标文件或目录
+            if file.is_dir() {
+                std::fs::create_dir_all(file_path)?;
+            } else {
+                if let Some(parent) = Path::new(&file_path).parent() {
+                    if !parent.exists() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                }
+
+                let mut output_file = File::create(file_path)?;
+                io::copy(&mut file, &mut output_file)?;
+            }
+        }
+
+        println!("Extraction complete.");
+    }
+    Ok(Bugreport::new(file_path).unwrap())
+}
+
 mod tests {
     use chrono::{NaiveDate, TimeZone};
     use std::{fs, path::PathBuf};
@@ -137,53 +181,9 @@ mod tests {
 
     use super::*;
 
-    fn setup() -> io::Result<Bugreport> {
-        let file_path = Path::new("tests/data/example.txt");
-        if !Path::new(file_path).exists() {
-            println!(
-                "File '{}' does not exist. Extracting from ZIP...",
-                file_path.to_str().unwrap()
-            );
-
-            // ZIP 文件路径
-            let zip_path = Path::new("tests/data/example.zip");
-
-            // 打开 ZIP 文件
-            let zip_file = File::open(zip_path)?;
-            let mut archive = ZipArchive::new(zip_file)?;
-
-            // 解压整个 ZIP 文件
-            for i in 0..archive.len() {
-                let mut file = archive.by_index(i)?;
-                let file_name = file.name();
-
-                let mut file_path = PathBuf::from("tests/data");
-                file_path.push(file_name);
-                println!("Extracting {}...", file_path.display());
-
-                // 创建目标文件或目录
-                if file.is_dir() {
-                    fs::create_dir_all(file_path)?;
-                } else {
-                    if let Some(parent) = Path::new(&file_path).parent() {
-                        if !parent.exists() {
-                            fs::create_dir_all(parent)?;
-                        }
-                    }
-
-                    let mut output_file = File::create(file_path)?;
-                    io::copy(&mut file, &mut output_file)?;
-                }
-            }
-
-            println!("Extraction complete.");
-        }
-        Ok(Bugreport::new(file_path).unwrap())
-    }
-
     #[test]
     fn test_read_and_slice() {
-        let mut bugreport = setup().unwrap();
+        let mut bugreport = test_setup_bugreport().unwrap();
         let matches = bugreport.read_and_slice().unwrap();
         assert_eq!(matches.len(), 274);
         assert_eq!(
@@ -201,7 +201,7 @@ mod tests {
 
     #[test]
     fn test_pair_sections() {
-        let mut bugreport = setup().unwrap();
+        let mut bugreport = test_setup_bugreport().unwrap();
         let matches = match bugreport.read_and_slice() {
             Ok(matches) => matches,
             Err(e) => {
@@ -226,7 +226,10 @@ mod tests {
         );
         // find the section with the name "DUMPSYS"
         let dumpsys_section = bugreport.sections.iter().find(|s| s.name == "DUMPSYS");
-        assert_eq!(dumpsys_section.unwrap().content, SectionContent::Dumpsys(Dumpsys::new()));
+        assert_eq!(
+            dumpsys_section.unwrap().content,
+            SectionContent::Dumpsys(Dumpsys::new())
+        );
         // find a section without the above names
         let other_section = bugreport
             .sections
@@ -237,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_parse_line() {
-        let mut bugreport = setup().unwrap();
+        let mut bugreport = test_setup_bugreport().unwrap();
         let matches = match bugreport.read_and_slice() {
             Ok(matches) => matches,
             Err(e) => {
