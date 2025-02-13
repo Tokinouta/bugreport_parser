@@ -124,7 +124,7 @@ impl Section {
 }
 
 #[derive(Debug)]
-struct InputFocusPair {
+pub struct InputFocusTuple {
     pub request: Option<LogcatLine>,
     pub receive: Option<LogcatLine>,
     pub entering: Option<LogcatLine>,
@@ -136,7 +136,7 @@ impl Section {
     // 第一步通过 dump of service greezer 找到用户开关屏幕的时间点，也可以考虑通过 screen_toggled 0
     // 第二步根据上述开关屏时间点找当时的 input_focus 记录，看看每一个时间点的 focus 到底在哪里
     // 第三步看 wm 生命周期，看能不能跟 focus 记录对上
-    pub fn pair_input_focus(&self) -> Option<Vec<InputFocusPair>> {
+    pub fn pair_input_focus(&self) -> Option<Vec<InputFocusTuple>> {
         let result = match self.search_by_tag("input_focus") {
             Some(logs) => logs,
             None => return None,
@@ -182,7 +182,7 @@ impl Section {
                     break;
                 }
             }
-            result2.push(InputFocusPair {
+            result2.push(InputFocusTuple {
                 request: Some(request.clone()),
                 receive: match receive {
                     Some(line) => Some(line.clone()),
