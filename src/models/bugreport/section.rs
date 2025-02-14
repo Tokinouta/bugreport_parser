@@ -1,6 +1,7 @@
 use super::{dumpsys::Dumpsys, logcat::LogcatLine};
 use chrono::{Duration, Local, NaiveDateTime, TimeZone};
 use lazy_static::lazy_static;
+use rayon::prelude::*;
 use regex::Regex;
 
 lazy_static! {
@@ -61,24 +62,30 @@ impl Section {
         self.end_line - self.start_line
     }
 
-    pub fn parse(&mut self, lines: &[String], year: i32) {
-        println!("Parsing section: {}", lines.len());
+    pub fn parse(&mut self, lines: &[&str], year: i32) {
+        // println!("Parsing section: {}", lines.len());
         match self.content {
             SectionContent::SystemLog(ref mut s) | SectionContent::EventLog(ref mut s) => {
                 // read from start_line to end_line and parse each line
-                let mut no_such_line = Vec::new();
-                let mut last = 0;
-                for (i, line) in lines.into_iter().enumerate() {
-                    if let Some(logcat_line) = LogcatLine::parse_line(&line, year) {
-                        s.push(logcat_line);
-                        if i - last > 1 {
-                            no_such_line.push(i - 1);
-                            println!("No such line: {:?}", lines[i - 1]);
-                        }
-                        last = i;
-                    };
-                }
-                println!("No such line: {:?}", no_such_line);
+                // let mut no_such_line = Vec::new();
+                // let mut last = 0;
+                // for (i, line) in lines.into_iter().enumerate() {
+                //     if let Some(logcat_line) = LogcatLine::parse_line(&line, year) {
+                //         s.push(logcat_line);
+                //         if i - last > 1 {
+                //             no_such_line.push(i - 1);
+                //             println!("No such line: {:?}", lines[i - 1]);
+                //         }
+                //         last = i;
+                //     };
+                // }
+                // let mut s = s.clone();
+                // println!("No such line: {:?}", no_such_line);
+                let mut parsed_lines: Vec<_> = lines.par_iter()
+                    .filter_map(|line| LogcatLine::parse_line(line, year))
+                    .collect();
+                parsed_lines.par_sort_by_key(|line| line.timestamp);
+                s.extend(parsed_lines);
             }
             SectionContent::Dumpsys(ref mut s) => {
                 s.parse(lines, year);
@@ -220,7 +227,7 @@ mod tests {
 08-16 10:01:30.003 10160  5140  5300 D GestureStubView_Touch: disableTouch    old=false   new=false
 08-16 10:01:30.003 10160  5140  5300 D GestureStubView: showGestureStub
 08-16 10:01:30.003 10160  5140  5300 D GestureStubView_Touch: setKeepHidden    old=false   new=false
-"#.trim().split("\n").map(|s| s.to_string()).collect::<Vec<String>>();
+"#.trim().lines().collect::<Vec<&str>>();
         let mut section = Section::new(
             "SYSTEM LOG".to_string(),
             0,
@@ -246,7 +253,7 @@ mod tests {
 08-16 10:01:37.003 10160  5140  5300 D GestureStubView_Touch: disableTouch    old=false   new=false
 08-16 10:01:38.003 10160  5140  5300 D GestureStubView: showGestureStub
 08-16 10:01:39.003 10160  5140  5300 D GestureStubView_Touch: setKeepHidden    old=false   new=false
-"#.trim().split("\n").map(|s| s.to_string()).collect::<Vec<String>>();
+"#.trim().lines().collect::<Vec<&str>>();
         let mut section = Section::new(
             "SYSTEM LOG".to_string(),
             0,

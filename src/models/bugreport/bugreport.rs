@@ -3,6 +3,7 @@ use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 
 use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone};
+use memmap2::Mmap;
 
 use crate::models::bugreport::section::SectionContent;
 
@@ -12,7 +13,7 @@ use crate::models::bugreport::section::{SECTION_BEGIN, SECTION_BEGIN_NO_CMD, SEC
 
 #[derive(Debug)]
 pub struct Bugreport {
-    pub raw_file: File,
+    pub raw_file: Mmap,
     pub timestamp: DateTime<Local>,
     pub sections: Vec<Section>,
 }
@@ -21,27 +22,29 @@ impl Bugreport {
     pub fn new(path: &Path) -> io::Result<Self> {
         // Open the file
         let raw_file = File::open(path)?;
+        let mmap_file = unsafe { Mmap::map(&raw_file)? };
         Ok(Bugreport {
-            raw_file,
+            raw_file: mmap_file,
             timestamp: Local::now(),
             sections: Vec::new(),
         })
     }
 
     pub fn read_and_slice(&mut self) -> io::Result<Vec<(usize, String)>> {
-        let mut reader = BufReader::new(&self.raw_file);
+        let bugreport = std::str::from_utf8(&self.raw_file).unwrap();
+        let mut lines = bugreport.lines();
 
-        let mut buf = String::new();
-        reader.read_line(&mut buf)?;
-        buf.clear();
-        reader.read_line(&mut buf)?;
+        // Skip the first line
+        lines.next();
+        // Get the second line which contains the timestamp
+        let timestamp_line = lines.next().unwrap_or("");
         let parse_timestamp = |line: &str| {
             let timestamp_str = line.trim_start_matches("== dumpstate: ").trim();
             NaiveDateTime::parse_from_str(timestamp_str, "%Y-%m-%d %H:%M:%S")
                 .map(|naive_dt| Local.from_local_datetime(&naive_dt).unwrap())
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
         };
-        self.timestamp = parse_timestamp(&buf)?;
+        self.timestamp = parse_timestamp(&timestamp_line)?;
 
         // Create a vector to store the line number and content of each match
         let mut matches: Vec<(usize, String)> = Vec::new();
@@ -54,8 +57,8 @@ impl Bugreport {
                 }
             };
 
-        for (line_number, line) in reader.lines().enumerate() {
-            let line = line?;
+        for (line_number, line) in lines.enumerate() {
+            // let line = line?;
 
             // Check if the first regex matches and capture groups
             if let Some(caps) = SECTION_END.captures(&line) {
@@ -79,9 +82,9 @@ impl Bugreport {
         }
 
         // Output all the matches stored in the variable
-        for (line_number, content) in &matches {
-            println!("Line {}: {}", line_number, content);
-        }
+        // for (line_number, content) in &matches {
+        //     println!("Line {}: {}", line_number, content);
+        // }
 
         Ok(matches)
     }
@@ -89,12 +92,8 @@ impl Bugreport {
     pub fn pair_sections(&mut self, matches: &Vec<(usize, String)>) {
         // iterate over matches with indices
         let mut second_occurance = false;
-        self.raw_file.seek(SeekFrom::Start(0)).unwrap();
-        let reader = BufReader::new(&self.raw_file);
-        let lines = reader
-            .lines()
-            .map(|ss| ss.unwrap())
-            .collect::<Vec<String>>();
+        let bugreport = std::str::from_utf8(&self.raw_file).unwrap();
+        let lines: Vec<&str> = bugreport.lines().collect();
         for (index, (line_number, content)) in matches.iter().enumerate() {
             if index > 0 && content.contains(&matches.get(index - 1).unwrap().1) {
                 second_occurance = true;
@@ -176,7 +175,7 @@ pub fn test_setup_bugreport() -> io::Result<Bugreport> {
 
 mod tests {
     use chrono::{NaiveDate, TimeZone};
-    use std::{fs, path::PathBuf};
+    use std::{fs, path::PathBuf, time::Instant};
     use zip::ZipArchive;
 
     use super::*;
@@ -202,6 +201,8 @@ mod tests {
     #[test]
     fn test_pair_sections() {
         let mut bugreport = test_setup_bugreport().unwrap();
+
+        let start = Instant::now();
         let matches = match bugreport.read_and_slice() {
             Ok(matches) => matches,
             Err(e) => {
@@ -209,7 +210,12 @@ mod tests {
                 return;
             }
         };
+        let duration = start.elapsed();
+        println!("Time taken: {:?}", duration);
+        let start = Instant::now();
         bugreport.pair_sections(&matches);
+        let duration = start.elapsed();
+        println!("Time taken: {:?}", duration);
         assert_eq!(bugreport.sections.len(), 134);
 
         // find the section with the name "SYSTEM LOG"

@@ -19,7 +19,7 @@ impl Dumpsys {
         Self(Vec::new())
     }
 
-    pub fn parse(&mut self, lines: &[String], _year: i32)  {
+    pub fn parse(&mut self, lines: &[&str], _year: i32)  {
         let mut temp = String::new();
         for line in lines {
             if let Some(captures) = DUMPSYS.captures(line) {
