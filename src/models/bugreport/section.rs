@@ -1,4 +1,7 @@
-use super::{dumpsys::Dumpsys, logcat::LogcatLine};
+use super::{
+    dumpsys::Dumpsys,
+    logcat::{LogcatLine, LogcatSection},
+};
 use chrono::{Duration, Local, NaiveDateTime, TimeZone};
 use lazy_static::lazy_static;
 use rayon::prelude::*;
@@ -22,8 +25,8 @@ lazy_static! {
 
 #[derive(Debug)]
 pub enum SectionContent {
-    SystemLog(Vec<LogcatLine>),
-    EventLog(Vec<LogcatLine>),
+    SystemLog(LogcatSection),
+    EventLog(LogcatSection),
     Dumpsys(Dumpsys),
     Other,
 }
@@ -81,11 +84,7 @@ impl Section {
                 // }
                 // let mut s = s.clone();
                 // println!("No such line: {:?}", no_such_line);
-                let mut parsed_lines: Vec<_> = lines.par_iter()
-                    .filter_map(|line| LogcatLine::parse_line(line, year))
-                    .collect();
-                parsed_lines.par_sort_by_key(|line| line.timestamp);
-                s.extend(parsed_lines);
+                s.parse(lines, year);
             }
             SectionContent::Dumpsys(ref mut s) => {
                 s.parse(lines, year);
@@ -95,38 +94,21 @@ impl Section {
     }
 
     pub fn search_by_tag(&self, tag: &str) -> Option<Vec<LogcatLine>> {
-        let content = match self.content {
-            SectionContent::SystemLog(ref s) | SectionContent::EventLog(ref s) => s,
-            _ => return None,
-        };
-
-        let mut result = Vec::new();
-        for line in content {
-            if line.tag == tag {
-                result.push(line.clone());
+        match self.content {
+            SectionContent::SystemLog(ref s) | SectionContent::EventLog(ref s) => {
+                Some(s.search_by_tag(tag))
             }
+            _ => None,
         }
-        Some(result)
     }
 
     pub fn search_by_time(&self, time: &str) -> Option<Vec<LogcatLine>> {
-        let content = match self.content {
-            SectionContent::SystemLog(ref s) | SectionContent::EventLog(ref s) => s,
-            _ => return None,
-        };
-        let time = NaiveDateTime::parse_from_str(time, "%Y-%m-%d %H:%M:%S")
-            .map(|naive_dt| Local.from_local_datetime(&naive_dt).unwrap())
-            .unwrap();
-
-        let mut result = Vec::new();
-        for line in content {
-            if line.timestamp - time <= Duration::seconds(1)
-                && line.timestamp - time >= Duration::seconds(-1)
-            {
-                result.push(line.clone());
+        match self.content {
+            SectionContent::SystemLog(ref s) | SectionContent::EventLog(ref s) => {
+                Some(s.search_by_time(time))
             }
+            _ => None,
         }
-        Some(result)
     }
 }
 
@@ -232,7 +214,7 @@ mod tests {
             "SYSTEM LOG".to_string(),
             0,
             10,
-            SectionContent::SystemLog(Vec::new()),
+            SectionContent::SystemLog(LogcatSection::new(Vec::new())),
         );
         section.parse(&logcat, 2024);
         let result = section.search_by_tag("GestureStubView");
@@ -258,7 +240,7 @@ mod tests {
             "SYSTEM LOG".to_string(),
             0,
             10,
-            SectionContent::SystemLog(Vec::new()),
+            SectionContent::SystemLog(LogcatSection::new(Vec::new())),
         );
         section.parse(&logcat, 2024);
         let result = section.search_by_time("2024-08-16 10:01:34");
@@ -281,22 +263,29 @@ mod tests {
         let result = event_log_section.pair_input_focus();
         for pair in result.unwrap() {
             println!("{:?}", pair);
-            let request_activity = INPUT_FOCUS_REQUEST.captures(&pair.request.as_ref().unwrap().message)
+            let request_activity = INPUT_FOCUS_REQUEST
+                .captures(&pair.request.as_ref().unwrap().message)
                 .unwrap()
                 .get(1)
                 .unwrap()
                 .as_str();
             // check if the four fields have increasing timestamp and the same activity
+            // avoid formatting the following lines
+
             if pair.receive.is_none() {
                 continue;
             }
+            #[rustfmt::skip]
             assert!(pair.receive.as_ref().unwrap().timestamp >= pair.request.as_ref().unwrap().timestamp);
+            #[rustfmt::skip]
             assert!(pair.receive.as_ref().unwrap().message.contains(request_activity));
 
-            if pair.entering.is_none() {    
+            if pair.entering.is_none() {
                 continue;
             }
+            #[rustfmt::skip]
             assert!(pair.entering.as_ref().unwrap().timestamp >= pair.receive.as_ref().unwrap().timestamp);
+            #[rustfmt::skip]
             assert!(pair.entering.as_ref().unwrap().message.contains(request_activity));
 
             if pair.leaving.is_none() {
@@ -304,6 +293,7 @@ mod tests {
             }
             // In some cases, the leaving timestamp is before the entering timestamp, which could be due to the interleaved log
             // assert!(pair.leaving.as_ref().unwrap().timestamp >= pair.entering.as_ref().unwrap().timestamp);
+            #[rustfmt::skip]
             assert!(pair.leaving.as_ref().unwrap().message.contains(request_activity));
         }
     }

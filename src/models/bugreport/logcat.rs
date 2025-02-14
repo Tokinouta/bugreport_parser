@@ -1,8 +1,8 @@
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+use chrono::{DateTime, Duration, Local, NaiveDateTime, TimeZone};
 use lazy_static::lazy_static;
+use rayon::prelude::*;
 use regex::Regex;
 use std::fmt::{self, Display, Formatter};
-
 lazy_static! {
     pub(crate) static ref LOGCAT_LINE: Regex = Regex::new(
         r#"(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) +(\w+) +(\d+) +(\d+) ([A-Z]) ([^:]+) *:(.*)"#
@@ -21,7 +21,11 @@ pub struct LogcatLine {
     pub message: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct LogcatSection(Vec<LogcatLine>);
+
 impl LogcatLine {
+    #[rustfmt::skip]
     pub fn new(
         timestamp: DateTime<Local>,
         user: String,
@@ -31,15 +35,7 @@ impl LogcatLine {
         tag: String,
         message: String,
     ) -> Self {
-        Self {
-            timestamp,
-            user,
-            pid,
-            tid,
-            level,
-            tag,
-            message,
-        }
+        Self { timestamp, user, pid, tid, level, tag, message }
     }
 
     pub fn parse_line(line: &str, year: i32) -> Option<Self> {
@@ -61,13 +57,6 @@ impl LogcatLine {
             None
         }
     }
-
-    pub fn search_by_tag(tag: &str, lines: Vec<LogcatLine>) -> Vec<LogcatLine> {
-        lines
-            .into_iter()
-            .filter(|line| line.tag.contains(tag))
-            .collect()
-    }
 }
 
 impl Display for LogcatLine {
@@ -86,9 +75,49 @@ impl Display for LogcatLine {
     }
 }
 
+impl LogcatSection {
+    pub fn new(lines: Vec<LogcatLine>) -> Self {
+        Self(lines)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn parse(&mut self, lines: &[&str], year: i32) {
+        let parsed_lines: Vec<_> = lines
+            .par_iter()
+            .filter_map(|line| LogcatLine::parse_line(line, year))
+            .collect();
+        self.0.extend(parsed_lines);
+    }
+
+    pub fn search_by_tag(&self, tag: &str) -> Vec<LogcatLine> {
+        self.0
+            .par_iter()
+            .filter(|line| line.tag == tag)
+            .cloned()
+            .collect()
+    }
+
+    pub fn search_by_time(&self, time: &str) -> Vec<LogcatLine> {
+        self.0
+            .par_iter()
+            .filter(|line| {
+                let time = NaiveDateTime::parse_from_str(time, "%Y-%m-%d %H:%M:%S")
+                    .map(|naive_dt| Local.from_local_datetime(&naive_dt).unwrap())
+                    .unwrap();
+
+                line.timestamp - time <= Duration::seconds(1)
+                    && line.timestamp - time >= Duration::seconds(-1)
+            })
+            .cloned()
+            .collect()
+    }
+}
+
 mod tests {
     use chrono::{NaiveDate, TimeZone};
-
     use super::*;
 
     #[test]
@@ -111,12 +140,10 @@ mod tests {
             "message".to_string(),
         );
 
+        #[rustfmt::skip]
         assert_eq!(
             format!("{}", logcat_line),
-            format!(
-                "{} user 1234 5678 I tag: message",
-                timestamp.format("%Y-%m-%d %H:%M:%S.%f")
-            )
+            format!("{} user 1234 5678 I tag: message", timestamp.format("%Y-%m-%d %H:%M:%S.%f"))
         );
     }
 }

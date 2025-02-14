@@ -266,20 +266,20 @@ fn evaluate_input(input: &str, state: &mut ReplState) -> String {
         let tag_name = parts[1];
 
         // 执行 tag 命令
-        let results = if state.last_result.len() > 0 {
-            LogcatLine::search_by_tag(tag_name, state.last_result.to_vec())
-        } else {
-            let mut temp_results = Vec::new();
-            for section in sections {
-                if let Some(result) = section.search_by_tag(tag_name) {
-                    temp_results.extend(result);
-                }
-            }
-            temp_results
-        };
-        state.last_result = Rc::new(results.clone());
+        // let results = if state.last_result.len() > 0 {
+        //     LogcatLine::search_by_tag(tag_name, state.last_result.to_vec())
+        // } else {
+        //     let mut temp_results = Vec::new();
+        //     for section in sections {
+        //         if let Some(result) = section.search_by_tag(tag_name) {
+        //             temp_results.extend(result);
+        //         }
+        //     }
+        //     temp_results
+        // };
+        // state.last_result = Rc::new(results.clone());
 
-        return format!("Tagged results: {:?}", results);
+        // return format!("Tagged results: {:?}", results);
     }
 
     "Ok".to_string()

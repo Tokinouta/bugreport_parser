@@ -8,6 +8,7 @@ use memmap2::Mmap;
 use crate::models::bugreport::section::SectionContent;
 
 use super::dumpsys::Dumpsys;
+use super::logcat::LogcatSection;
 use super::section::Section;
 use crate::models::bugreport::section::{SECTION_BEGIN, SECTION_BEGIN_NO_CMD, SECTION_END};
 
@@ -109,8 +110,8 @@ impl Bugreport {
                 start_line + 1,
                 end_line - 1,
                 match content.as_str() {
-                    "SYSTEM LOG" => SectionContent::SystemLog(Vec::new()),
-                    "EVENT LOG" => SectionContent::EventLog(Vec::new()),
+                    "SYSTEM LOG" => SectionContent::SystemLog(LogcatSection::new(Vec::new())),
+                    "EVENT LOG" => SectionContent::EventLog(LogcatSection::new(Vec::new())),
                     "DUMPSYS" => SectionContent::Dumpsys(Dumpsys::new()),
                     _ => SectionContent::Other,
                 },
@@ -178,6 +179,8 @@ mod tests {
     use std::{fs, path::PathBuf, time::Instant};
     use zip::ZipArchive;
 
+    use crate::models::bugreport::logcat::LogcatSection;
+
     use super::*;
 
     #[test]
@@ -222,13 +225,13 @@ mod tests {
         let system_log_section = bugreport.sections.iter().find(|s| s.name == "SYSTEM LOG");
         assert_eq!(
             system_log_section.unwrap().content,
-            SectionContent::SystemLog(Vec::new())
+            SectionContent::SystemLog(LogcatSection::new(Vec::new()))
         );
         // find the section with the name "EVENT LOG"
         let event_log_section = bugreport.sections.iter().find(|s| s.name == "EVENT LOG");
         assert_eq!(
             event_log_section.unwrap().content,
-            SectionContent::EventLog(Vec::new())
+            SectionContent::EventLog(LogcatSection::new(Vec::new()))
         );
         // find the section with the name "DUMPSYS"
         let dumpsys_section = bugreport.sections.iter().find(|s| s.name == "DUMPSYS");
