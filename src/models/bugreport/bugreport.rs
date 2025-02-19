@@ -8,7 +8,7 @@ use memmap2::Mmap;
 use crate::models::bugreport::section::SectionContent;
 
 use super::dumpsys::Dumpsys;
-use super::logcat::LogcatSection;
+use super::logcat::{LogcatLine, LogcatSection};
 use super::section::Section;
 use crate::models::bugreport::section::{SECTION_BEGIN, SECTION_BEGIN_NO_CMD, SECTION_END};
 
@@ -127,6 +127,23 @@ impl Bugreport {
 
     pub fn get_sections(&self) -> &Vec<Section> {
         &self.sections
+    }
+}
+
+impl Bugreport {
+    pub fn search_by_tag(&self, tag: &str) -> Option<Vec<LogcatLine>> {
+        let sections = self
+            .sections
+            .iter()
+            .filter(|s| s.name == "SYSTEM LOG" || s.name == "EVENT LOG")
+            .collect::<Vec<&Section>>();
+        let mut results = Vec::new();
+        for section in sections {   
+            if let Some(lines) = section.search_by_tag(tag) {
+                results.extend(lines);
+            }
+        }
+        Some(results)
     }
 }
 

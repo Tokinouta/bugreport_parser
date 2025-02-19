@@ -266,20 +266,16 @@ fn evaluate_input(input: &str, state: &mut ReplState) -> String {
         let tag_name = parts[1];
 
         // 执行 tag 命令
-        // let results = if state.last_result.len() > 0 {
-        //     LogcatLine::search_by_tag(tag_name, state.last_result.to_vec())
-        // } else {
-        //     let mut temp_results = Vec::new();
-        //     for section in sections {
-        //         if let Some(result) = section.search_by_tag(tag_name) {
-        //             temp_results.extend(result);
-        //         }
-        //     }
-        //     temp_results
-        // };
-        // state.last_result = Rc::new(results.clone());
+        // TODO: 需要优化，如果上一次查询的结果不为空，则直接使用上一次查询的结果
+        // TODO: 需要优化，加入自动补全 tag，避免想不起来
+        let results = if state.last_result.len() > 0 {
+            state.bugreport.search_by_tag(tag_name)
+        } else {
+            state.bugreport.search_by_tag(tag_name)
+        };
+        state.last_result = Rc::new(results.unwrap());
 
-        // return format!("Tagged results: {:?}", results);
+        return format!("Tagged results: {:?}", state.last_result);
     }
 
     "Ok".to_string()
