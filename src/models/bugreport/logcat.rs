@@ -84,6 +84,10 @@ impl LogcatSection {
         self.0.len()
     }
 
+    pub fn get_line(&self, index: usize) -> Option<&LogcatLine> {
+        self.0.get(index)
+    }
+
     pub fn parse(&mut self, lines: &[&str], year: i32) {
         let parsed_lines: Vec<_> = lines
             .par_iter()

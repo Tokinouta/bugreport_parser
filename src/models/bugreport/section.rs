@@ -62,7 +62,7 @@ impl Section {
     }
 
     pub fn get_line_numbers(&self) -> usize {
-        self.end_line - self.start_line
+        self.end_line - self.start_line + 1
     }
 
     pub fn parse(&mut self, lines: &[&str], year: i32) {
@@ -109,6 +109,12 @@ impl Section {
             }
             _ => None,
         }
+    }
+}
+
+impl std::fmt::Display for Section {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}, start: {}, end: {}", self.name, self.start_line, self.end_line)
     }
 }
 

@@ -9,13 +9,12 @@ use crate::models::bugreport::section::SectionContent;
 
 use super::dumpsys::Dumpsys;
 use super::logcat::{LogcatLine, LogcatSection};
-use super::section::Section;
-use crate::models::bugreport::section::{SECTION_BEGIN, SECTION_BEGIN_NO_CMD, SECTION_END};
-
+use super::metadata::Metadata;
+use super::section::{Section, SECTION_BEGIN, SECTION_BEGIN_NO_CMD, SECTION_END};
 #[derive(Debug)]
 pub struct Bugreport {
     pub raw_file: Mmap,
-    pub timestamp: DateTime<Local>,
+    pub metadata: Metadata,
     pub sections: Vec<Section>,
 }
 
@@ -26,7 +25,7 @@ impl Bugreport {
         let mmap_file = unsafe { Mmap::map(&raw_file)? };
         Ok(Bugreport {
             raw_file: mmap_file,
-            timestamp: Local::now(),
+            metadata: Metadata::new(),
             sections: Vec::new(),
         })
     }
@@ -35,17 +34,7 @@ impl Bugreport {
         let bugreport = std::str::from_utf8(&self.raw_file).unwrap();
         let mut lines = bugreport.lines();
 
-        // Skip the first line
-        lines.next();
-        // Get the second line which contains the timestamp
-        let timestamp_line = lines.next().unwrap_or("");
-        let parse_timestamp = |line: &str| {
-            let timestamp_str = line.trim_start_matches("== dumpstate: ").trim();
-            NaiveDateTime::parse_from_str(timestamp_str, "%Y-%m-%d %H:%M:%S")
-                .map(|naive_dt| Local.from_local_datetime(&naive_dt).unwrap())
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
-        };
-        self.timestamp = parse_timestamp(&timestamp_line)?;
+        self.metadata.parse(&mut lines)?;
 
         // Create a vector to store the line number and content of each match
         let mut matches: Vec<(usize, String)> = Vec::new();
@@ -59,8 +48,7 @@ impl Bugreport {
             };
 
         for (line_number, line) in lines.enumerate() {
-            // let line = line?;
-
+            let line_number = line_number + self.metadata.lines_passed;
             // Check if the first regex matches and capture groups
             if let Some(caps) = SECTION_END.captures(&line) {
                 if let Some(group) = caps.get(2) {
@@ -117,7 +105,7 @@ impl Bugreport {
                 },
             );
 
-            current_section.parse(&lines[start_line + 1..end_line], self.timestamp.year());
+            current_section.parse(&lines[start_line + 1..end_line], self.metadata.timestamp.year());
 
             self.sections.push(current_section);
 
@@ -138,7 +126,7 @@ impl Bugreport {
             .filter(|s| s.name == "SYSTEM LOG" || s.name == "EVENT LOG")
             .collect::<Vec<&Section>>();
         let mut results = Vec::new();
-        for section in sections {   
+        for section in sections {
             if let Some(lines) = section.search_by_tag(tag) {
                 results.extend(lines);
             }
@@ -193,11 +181,6 @@ pub fn test_setup_bugreport() -> io::Result<Bugreport> {
 
 mod tests {
     use chrono::{NaiveDate, TimeZone};
-    use std::{fs, path::PathBuf, time::Instant};
-    use zip::ZipArchive;
-
-    use crate::models::bugreport::logcat::LogcatSection;
-
     use super::*;
 
     #[test]
@@ -206,7 +189,7 @@ mod tests {
         let matches = bugreport.read_and_slice().unwrap();
         assert_eq!(matches.len(), 274);
         assert_eq!(
-            bugreport.timestamp,
+            bugreport.metadata.timestamp,
             Local
                 .from_local_datetime(
                     &NaiveDate::from_ymd_opt(2024, 8, 16)
@@ -222,7 +205,7 @@ mod tests {
     fn test_pair_sections() {
         let mut bugreport = test_setup_bugreport().unwrap();
 
-        let start = Instant::now();
+        let start = std::time::Instant::now();
         let matches = match bugreport.read_and_slice() {
             Ok(matches) => matches,
             Err(e) => {
@@ -232,7 +215,7 @@ mod tests {
         };
         let duration = start.elapsed();
         println!("Time taken: {:?}", duration);
-        let start = Instant::now();
+        let start = std::time::Instant::now();
         bugreport.pair_sections(&matches);
         let duration = start.elapsed();
         println!("Time taken: {:?}", duration);
