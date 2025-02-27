@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
+use std::io;
 use std::path::Path;
 
 use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone};
@@ -69,12 +69,6 @@ impl Bugreport {
                 }
             }
         }
-
-        // Output all the matches stored in the variable
-        // for (line_number, content) in &matches {
-        //     println!("Line {}: {}", line_number, content);
-        // }
-
         Ok(matches)
     }
 

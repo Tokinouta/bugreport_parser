@@ -118,11 +118,34 @@ impl LogcatSection {
             .cloned()
             .collect()
     }
+
+    pub fn search_by_level(&self, level: char) -> Vec<LogcatLine> {
+        self.0
+            .par_iter()
+            .filter(|line| line.level == level)
+            .cloned()
+            .collect()
+    }
 }
 
 mod tests {
-    use chrono::{NaiveDate, TimeZone};
     use super::*;
+    use chrono::{NaiveDate, TimeZone};
+
+    fn get_test_lines() -> Vec<&'static str> {
+        r#"
+08-16 10:01:30.003  1000  5098  5850 D LocalBluetoothAdapter: isSupportBluetoothRestrict = 0
+08-16 10:01:31.003 10160  5140  5140 D RecentsImpl: hideNavStubView
+08-16 10:01:32.003 10160  5140  5140 D NavStubView_Touch: setKeepHidden    old=false   new=true
+08-16 10:01:33.003 10160  5140  5300 D GestureStubView_Touch: setKeepHidden    old=false   new=false
+08-16 10:01:34.003  1000  2270  5305 D PerfShielderService: com.android.systemui|StatusBar|171|1389485333739|171|0|1
+08-16 10:01:35.003 10160  5140  5300 W GestureStubView: adaptRotation   currentRotation=0   mRotation=0
+08-16 10:01:36.003 10160  5140  5300 D GestureStubView: resetRenderProperty: showGestureStub   isLayoutParamChanged=false
+08-16 10:01:37.003 10160  5140  5300 D GestureStubView_Touch: disableTouch    old=false   new=false
+08-16 10:01:38.003 10160  5140  5300 D GestureStubView: showGestureStub
+08-16 10:01:39.003 10160  5140  5300 D GestureStubView_Touch: setKeepHidden    old=false   new=false
+"#.trim().lines().collect::<Vec<&str>>()
+    }
 
     #[test]
     fn test_logcat_line() {
@@ -149,5 +172,35 @@ mod tests {
             format!("{}", logcat_line),
             format!("{} user 1234 5678 I tag: message", timestamp.format("%Y-%m-%d %H:%M:%S.%f"))
         );
+    }
+
+    #[test]
+    fn test_search_by_tag() {
+        let logcat = get_test_lines();
+        let mut section = LogcatSection::new(Vec::new());
+        section.parse(&logcat, 2024);
+        let result = section.search_by_tag("GestureStubView");
+        println!("{:?}", result.clone());
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn test_search_by_time() {
+        let logcat = get_test_lines();
+        let mut section = LogcatSection::new(Vec::new());
+        section.parse(&logcat, 2024);
+        let result = section.search_by_time("2024-08-16 10:01:34");
+        println!("{:?}", result.clone());
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_search_by_level() {
+        let logcat = get_test_lines();
+        let mut section = LogcatSection::new(Vec::new());
+        section.parse(&logcat, 2024);
+        let result = section.search_by_level('D');
+        println!("{:?}", result.clone());
+        assert_eq!(result.len(), 9);
     }
 }

@@ -2,9 +2,7 @@ use super::{
     dumpsys::Dumpsys,
     logcat::{LogcatLine, LogcatSection},
 };
-use chrono::{Duration, Local, NaiveDateTime, TimeZone};
 use lazy_static::lazy_static;
-use rayon::prelude::*;
 use regex::Regex;
 
 lazy_static! {
@@ -66,24 +64,8 @@ impl Section {
     }
 
     pub fn parse(&mut self, lines: &[&str], year: i32) {
-        // println!("Parsing section: {}", lines.len());
         match self.content {
             SectionContent::SystemLog(ref mut s) | SectionContent::EventLog(ref mut s) => {
-                // read from start_line to end_line and parse each line
-                // let mut no_such_line = Vec::new();
-                // let mut last = 0;
-                // for (i, line) in lines.into_iter().enumerate() {
-                //     if let Some(logcat_line) = LogcatLine::parse_line(&line, year) {
-                //         s.push(logcat_line);
-                //         if i - last > 1 {
-                //             no_such_line.push(i - 1);
-                //             println!("No such line: {:?}", lines[i - 1]);
-                //         }
-                //         last = i;
-                //     };
-                // }
-                // let mut s = s.clone();
-                // println!("No such line: {:?}", no_such_line);
                 s.parse(lines, year);
             }
             SectionContent::Dumpsys(ref mut s) => {
@@ -201,58 +183,6 @@ impl Section {
 
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_search_by_tag() {
-        let logcat = r#"
-08-16 10:01:30.003  1000  5098  5850 D LocalBluetoothAdapter: isSupportBluetoothRestrict = 0
-08-16 10:01:30.003 10160  5140  5140 D RecentsImpl: hideNavStubView
-08-16 10:01:30.003 10160  5140  5140 D NavStubView_Touch: setKeepHidden    old=false   new=true
-08-16 10:01:30.003 10160  5140  5300 D GestureStubView_Touch: setKeepHidden    old=false   new=false
-08-16 10:01:30.003  1000  2270  5305 D PerfShielderService: com.android.systemui|StatusBar|171|1389485333739|171|0|1
-08-16 10:01:30.003 10160  5140  5300 W GestureStubView: adaptRotation   currentRotation=0   mRotation=0
-08-16 10:01:30.003 10160  5140  5300 D GestureStubView: resetRenderProperty: showGestureStub   isLayoutParamChanged=false
-08-16 10:01:30.003 10160  5140  5300 D GestureStubView_Touch: disableTouch    old=false   new=false
-08-16 10:01:30.003 10160  5140  5300 D GestureStubView: showGestureStub
-08-16 10:01:30.003 10160  5140  5300 D GestureStubView_Touch: setKeepHidden    old=false   new=false
-"#.trim().lines().collect::<Vec<&str>>();
-        let mut section = Section::new(
-            "SYSTEM LOG".to_string(),
-            0,
-            10,
-            SectionContent::SystemLog(LogcatSection::new(Vec::new())),
-        );
-        section.parse(&logcat, 2024);
-        let result = section.search_by_tag("GestureStubView");
-        println!("{:?}", result.clone().unwrap());
-        assert_eq!(result.unwrap().len(), 3);
-    }
-
-    #[test]
-    fn test_search_by_time() {
-        let logcat = r#"
-08-16 10:01:30.003  1000  5098  5850 D LocalBluetoothAdapter: isSupportBluetoothRestrict = 0
-08-16 10:01:31.003 10160  5140  5140 D RecentsImpl: hideNavStubView
-08-16 10:01:32.003 10160  5140  5140 D NavStubView_Touch: setKeepHidden    old=false   new=true
-08-16 10:01:33.003 10160  5140  5300 D GestureStubView_Touch: setKeepHidden    old=false   new=false
-08-16 10:01:34.003  1000  2270  5305 D PerfShielderService: com.android.systemui|StatusBar|171|1389485333739|171|0|1
-08-16 10:01:35.003 10160  5140  5300 W GestureStubView: adaptRotation   currentRotation=0   mRotation=0
-08-16 10:01:36.003 10160  5140  5300 D GestureStubView: resetRenderProperty: showGestureStub   isLayoutParamChanged=false
-08-16 10:01:37.003 10160  5140  5300 D GestureStubView_Touch: disableTouch    old=false   new=false
-08-16 10:01:38.003 10160  5140  5300 D GestureStubView: showGestureStub
-08-16 10:01:39.003 10160  5140  5300 D GestureStubView_Touch: setKeepHidden    old=false   new=false
-"#.trim().lines().collect::<Vec<&str>>();
-        let mut section = Section::new(
-            "SYSTEM LOG".to_string(),
-            0,
-            10,
-            SectionContent::SystemLog(LogcatSection::new(Vec::new())),
-        );
-        section.parse(&logcat, 2024);
-        let result = section.search_by_time("2024-08-16 10:01:34");
-        println!("{:?}", result.clone().unwrap());
-        assert_eq!(result.unwrap().len(), 2);
-    }
 
     #[test]
     fn test_pair_input_focus() {
