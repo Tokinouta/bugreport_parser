@@ -1,12 +1,13 @@
 use std::{
     collections::HashMap,
-    fs::File,
+    fs::{self, File},
     io::{self, BufRead, BufReader, BufWriter, Read, Seek, Write},
     path::Path,
 };
 
 use crate::{
     models::{
+        anr_result_bean::ANRResultBean,
         lock_bean::{HeldThread, LockBean},
         log_item_bean::LogItemBean,
         result_item_bean::ResultItemBean,
@@ -112,7 +113,7 @@ impl TraceAnalysis {
         src_file: &Path,
         bean_list: &mut [LogItemBean],
         result_list: &mut Vec<ResultItemBean>,
-        out_folder: Option<&Path>
+        out_folder: Option<&Path>,
     ) -> Vec<i32> {
         let mut reasons = Vec::new();
 
@@ -126,8 +127,12 @@ impl TraceAnalysis {
             item.set_process_name(log_bean.get_process_name().unwrap().to_string());
             item.set_out_path(src_file.parent().unwrap().to_string_lossy().to_string());
 
-            let reason =
-                self.analyse_trace(src_file, log_bean, &mut item, out_folder.unwrap_or(src_file.parent().unwrap()));
+            let reason = self.analyse_trace(
+                src_file,
+                log_bean,
+                &mut item,
+                out_folder.unwrap_or(src_file.parent().unwrap()),
+            );
             reasons.push(reason);
             result_list.push(item);
         }
@@ -643,4 +648,108 @@ impl TraceAnalysis {
 
         Ok(())
     }
+}
+
+// 解析日志文件
+pub fn parse_log(path: &Path, args: &[String]) {
+    let mut anr_result_bean_list = Vec::new();
+
+    if !path.is_dir() {
+        if let Some(result) = parse_single_log(path, args) {
+            anr_result_bean_list.push(result);
+        }
+        // return anr_result_bean_list;
+    }
+
+    let mut item_list = Vec::new();
+    if let Ok(entries) = fs::read_dir(path) {
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let file_path = entry.path();
+                if !file_path.to_string_lossy().contains("summary.txt") {
+                    if let Some(mut temp) = parse_single_log(&file_path, args) {
+                        item_list.append(&mut temp);
+                    }
+                }
+            }
+        }
+    }
+
+    if !item_list.is_empty() {
+        let list = turn_result_item_to_anr_list(item_list);
+        // anr_result_bean_list.extend(list);
+    }
+
+    // write_summary(&anr_result_bean_list, path);
+    // anr_result_bean_list
+}
+
+// 解析单个日志文件
+fn parse_single_log(path: &Path, args: &[String]) -> Option<Vec<ResultItemBean>> {
+    let path_str = path.to_string_lossy().to_string();
+    let mut new_path = path_str.clone();
+
+    if path_str.ends_with(".zip") {
+        new_path = path_str[..path_str.len() - 4].to_string();
+        // 调用解压逻辑（需要实现）
+    } else if path_str.ends_with(".tar.gz") {
+        new_path = path_str[..path_str.len() - 7].to_string();
+        // 调用解压逻辑（需要实现）
+    }
+
+    let scr_file = Path::new(&new_path);
+    // 调用日志分析逻辑（需要实现）
+    Some(vec![ResultItemBean::with_details(
+        "example_process".to_string(),
+        vec!["trace1".to_string(), "trace2".to_string()],
+        new_path,
+    )])
+}
+
+// 写入总结文件
+fn write_summary(anr_result_bean_list: &[ANRResultBean], path: &Path) {
+    if anr_result_bean_list.is_empty() {
+        return;
+    }
+
+    let summary_path = path.join("summary.txt");
+    if let Ok(file) = File::create(&summary_path) {
+        let mut writer = BufWriter::new(file);
+        for anr_bean in anr_result_bean_list {
+            if let Err(e) = anr_bean.write_to_file(&mut writer) {
+                eprintln!("Failed to write to file: {}", e);
+            }
+        }
+        println!("Summary written to: {}", summary_path.display());
+    }
+}
+
+// 转换 ResultItemBean 列表为 ANRResultBean 列表
+fn turn_result_item_to_anr_list(item_list: Vec<ResultItemBean>) -> Vec<ANRResultBean> {
+    let mut anr_list = Vec::new();
+    let mut process_to_index = HashMap::new();
+
+    for item in item_list {
+        let process_name = item.get_process_name().to_string();
+        let mut trace_list = item.get_trace_list().clone();
+        let out_path = item.get_out_path().to_string();
+
+        if let Some(&index) = process_to_index.get(&process_name) {
+            let anr_bean: &mut ANRResultBean = &mut anr_list[index];
+            let trace_index = anr_bean.compare_trace(&mut trace_list);
+            if trace_index.is_none() {
+                anr_bean.add_traces(&trace_list);
+            }
+            anr_bean.add_log_file_path(out_path, trace_index.unwrap());
+        } else {
+            let mut anr_bean = ANRResultBean::new();
+            anr_bean.set_process_name(process_name.clone());
+            let index = anr_bean.add_traces(&mut trace_list);
+            anr_bean.add_log_file_path(out_path, index);
+            process_to_index.insert(process_name, anr_list.len());
+            anr_list.push(anr_bean);
+        }
+    }
+
+    anr_list
 }

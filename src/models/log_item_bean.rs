@@ -166,7 +166,7 @@ impl fmt::Display for LogItemBean {
 #[cfg(test)]
 mod tests {
     use crate::models::lock_bean::LockBean;
-    use crate::TraceAnalysis;
+    use crate::trace_analysis::TraceAnalysis;
     use std::{
         fs::File,
         io::{BufReader, BufWriter},

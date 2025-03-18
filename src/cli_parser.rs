@@ -25,4 +25,5 @@ pub struct Cli {
 pub enum Mode {
     Parse,
     AnalyseTrace,
+    Bugreport
 }
