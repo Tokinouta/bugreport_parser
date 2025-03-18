@@ -9,11 +9,12 @@ use std::rc::Rc;
 use clap::Parser;
 use cli_parser::{Cli, Mode};
 use models::anr_result_bean::ANRResultBean;
-use models::bugreport::bugreport::Bugreport;
-use models::bugreport::logcat::LogcatLine;
+use bugreport::bugreport::Bugreport;
+use bugreport::logcat::LogcatLine;
 use models::result_item_bean::ResultItemBean;
 use trace_analysis::TraceAnalysis;
 
+pub mod bugreport;
 pub mod cli_parser;
 pub mod models;
 pub mod trace_analysis;
@@ -196,11 +197,10 @@ fn repl() {
         Err(_) => return,
     };
 
-    let matches = match bugreport.read_and_slice() {
+    match bugreport.load() {
         Ok(matches) => matches,
         Err(_) => return,
     };
-    bugreport.pair_sections(&matches);
     let mut state = ReplState {
         bugreport,
         status: ReplStatus::Ready,

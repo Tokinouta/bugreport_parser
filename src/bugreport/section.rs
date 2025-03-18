@@ -186,12 +186,11 @@ mod tests {
 
     #[test]
     fn test_pair_input_focus() {
-        let mut bugreport = crate::models::bugreport::bugreport::test_setup_bugreport().unwrap();
-        let matches = match bugreport.read_and_slice() {
+        let mut bugreport = crate::bugreport::bugreport::test_setup_bugreport().unwrap();
+        match bugreport.load() {
             Ok(matches) => matches,
             Err(e) => panic!("Error: {}", e),
         };
-        bugreport.pair_sections(&matches);
         let event_log_section = match bugreport.sections.iter().find(|s| s.name == "EVENT LOG") {
             Some(section) => section,
             None => panic!("EVENT LOG section not found"),

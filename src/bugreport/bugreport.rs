@@ -5,12 +5,10 @@ use std::path::Path;
 use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone};
 use memmap2::Mmap;
 
-use crate::models::bugreport::section::SectionContent;
-
 use super::dumpsys::Dumpsys;
 use super::logcat::{LogcatLine, LogcatSection};
 use super::metadata::Metadata;
-use super::section::{Section, SECTION_BEGIN, SECTION_BEGIN_NO_CMD, SECTION_END};
+use super::section::{Section, SectionContent, SECTION_BEGIN, SECTION_BEGIN_NO_CMD, SECTION_END};
 #[derive(Debug)]
 pub struct Bugreport {
     pub raw_file: Mmap,
@@ -30,7 +28,13 @@ impl Bugreport {
         })
     }
 
-    pub fn read_and_slice(&mut self) -> io::Result<Vec<(usize, String)>> {
+    pub fn load(&mut self) -> io::Result<()> {
+        let result = self.read_and_slice()?;
+        self.pair_sections(&result);
+        Ok(())
+    }
+
+    fn read_and_slice(&mut self) -> io::Result<Vec<(usize, String)>> {
         let bugreport = std::str::from_utf8(&self.raw_file).unwrap();
         let mut lines = bugreport.lines();
 
@@ -72,7 +76,7 @@ impl Bugreport {
         Ok(matches)
     }
 
-    pub fn pair_sections(&mut self, matches: &Vec<(usize, String)>) {
+    fn pair_sections(&mut self, matches: &Vec<(usize, String)>) {
         // iterate over matches with indices
         let mut second_occurance = false;
         let bugreport = std::str::from_utf8(&self.raw_file).unwrap();
@@ -99,7 +103,10 @@ impl Bugreport {
                 },
             );
 
-            current_section.parse(&lines[start_line + 1..end_line], self.metadata.timestamp.year());
+            current_section.parse(
+                &lines[start_line + 1..end_line],
+                self.metadata.timestamp.year(),
+            );
 
             self.sections.push(current_section);
 
@@ -174,8 +181,8 @@ pub fn test_setup_bugreport() -> io::Result<Bugreport> {
 }
 
 mod tests {
-    use chrono::{NaiveDate, TimeZone};
     use super::*;
+    use chrono::{NaiveDate, TimeZone};
 
     #[test]
     fn test_read_and_slice() {
