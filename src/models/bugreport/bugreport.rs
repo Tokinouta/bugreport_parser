@@ -5,6 +5,7 @@ use std::path::Path;
 use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone};
 use memmap2::Mmap;
 
+use crate::db::SqliteLogcatRepository;
 use crate::models::bugreport::section::SectionContent;
 
 use super::dumpsys::Dumpsys;
@@ -87,13 +88,14 @@ impl Bugreport {
 
             let start_line = matches.get(index - 1).unwrap().0;
             let end_line = *line_number;
+            let repo = SqliteLogcatRepository::new_in_memory().unwrap();
             let mut current_section = Section::new(
                 content.to_string(),
                 start_line + 1,
                 end_line - 1,
                 match content.as_str() {
-                    "SYSTEM LOG" => SectionContent::SystemLog(LogcatSection::new(Vec::new())),
-                    "EVENT LOG" => SectionContent::EventLog(LogcatSection::new(Vec::new())),
+                    "SYSTEM LOG" => SectionContent::SystemLog(LogcatSection::new(Vec::new(), repo)),
+                    "EVENT LOG" => SectionContent::EventLog(LogcatSection::new(Vec::new(), repo)),
                     "DUMPSYS" => SectionContent::Dumpsys(Dumpsys::new()),
                     _ => SectionContent::Other,
                 },
@@ -175,6 +177,8 @@ pub fn test_setup_bugreport() -> io::Result<Bugreport> {
 
 mod tests {
     use chrono::{NaiveDate, TimeZone};
+    use crate::db::MockLogcatRepository;
+
     use super::*;
 
     #[test]
@@ -217,15 +221,17 @@ mod tests {
 
         // find the section with the name "SYSTEM LOG"
         let system_log_section = bugreport.sections.iter().find(|s| s.name == "SYSTEM LOG");
+        let repo = MockLogcatRepository::new();
         assert_eq!(
             system_log_section.unwrap().content,
-            SectionContent::SystemLog(LogcatSection::new(Vec::new()))
+            SectionContent::SystemLog(LogcatSection::new(Vec::new(), repo))
         );
         // find the section with the name "EVENT LOG"
         let event_log_section = bugreport.sections.iter().find(|s| s.name == "EVENT LOG");
+        let repo = MockLogcatRepository::new();
         assert_eq!(
             event_log_section.unwrap().content,
-            SectionContent::EventLog(LogcatSection::new(Vec::new()))
+            SectionContent::EventLog(LogcatSection::new(Vec::new(), repo))
         );
         // find the section with the name "DUMPSYS"
         let dumpsys_section = bugreport.sections.iter().find(|s| s.name == "DUMPSYS");

@@ -3,6 +3,8 @@ use lazy_static::lazy_static;
 use rayon::prelude::*;
 use regex::Regex;
 use std::fmt::{self, Display, Formatter};
+
+use crate::db::LogcatRepository;
 lazy_static! {
     pub(crate) static ref LOGCAT_LINE: Regex = Regex::new(
         r#"(\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) +(\w+) +(\d+) +(\d+) ([A-Z]) ([^:]+) *:(.*)"#
@@ -12,6 +14,7 @@ lazy_static! {
 
 #[derive(Debug, Clone)]
 pub struct LogcatLine {
+    pub id: Option<i64>,
     pub timestamp: DateTime<Local>,
     pub user: String,
     pub pid: u32,
@@ -20,9 +23,6 @@ pub struct LogcatLine {
     pub tag: String,
     pub message: String,
 }
-
-#[derive(Debug, Clone)]
-pub struct LogcatSection(Vec<LogcatLine>);
 
 impl LogcatLine {
     #[rustfmt::skip]
@@ -35,7 +35,7 @@ impl LogcatLine {
         tag: String,
         message: String,
     ) -> Self {
-        Self { timestamp, user, pid, tid, level, tag, message }
+        Self { id: None, timestamp, user, pid, tid, level, tag, message }
     }
 
     pub fn parse_line(line: &str, year: i32) -> Option<Self> {
@@ -75,17 +75,26 @@ impl Display for LogcatLine {
     }
 }
 
+#[derive(Debug)]
+pub struct LogcatSection {
+    lines: Vec<LogcatLine>,
+    repo: Box<dyn LogcatRepository>,
+}
+
 impl LogcatSection {
-    pub fn new(lines: Vec<LogcatLine>) -> Self {
-        Self(lines)
+    pub fn new<T: LogcatRepository + 'static>(lines: Vec<LogcatLine>, repo: T) -> Self {
+        Self {
+            lines,
+            repo: Box::new(repo),
+        }
     }
 
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.lines.len()
     }
 
     pub fn get_line(&self, index: usize) -> Option<&LogcatLine> {
-        self.0.get(index)
+        self.lines.get(index)
     }
 
     pub fn parse(&mut self, lines: &[&str], year: i32) {
@@ -93,11 +102,12 @@ impl LogcatSection {
             .par_iter()
             .filter_map(|line| LogcatLine::parse_line(line, year))
             .collect();
-        self.0.extend(parsed_lines);
+        self.repo.insert_batch(&parsed_lines).unwrap();
+        // self.lines.extend(parsed_lines);
     }
 
     pub fn search_by_tag(&self, tag: &str) -> Vec<LogcatLine> {
-        self.0
+        self.lines
             .par_iter()
             .filter(|line| line.tag == tag)
             .cloned()
@@ -105,7 +115,7 @@ impl LogcatSection {
     }
 
     pub fn search_by_time(&self, time: &str) -> Vec<LogcatLine> {
-        self.0
+        self.lines
             .par_iter()
             .filter(|line| {
                 let time = NaiveDateTime::parse_from_str(time, "%Y-%m-%d %H:%M:%S")
@@ -120,7 +130,7 @@ impl LogcatSection {
     }
 
     pub fn search_by_level(&self, level: char) -> Vec<LogcatLine> {
-        self.0
+        self.lines
             .par_iter()
             .filter(|line| line.level == level)
             .cloned()
@@ -129,6 +139,8 @@ impl LogcatSection {
 }
 
 mod tests {
+    use crate::db::MockLogcatRepository;
+
     use super::*;
     use chrono::{NaiveDate, TimeZone};
 
@@ -177,7 +189,8 @@ mod tests {
     #[test]
     fn test_search_by_tag() {
         let logcat = get_test_lines();
-        let mut section = LogcatSection::new(Vec::new());
+        let repo = MockLogcatRepository::new();
+        let mut section = LogcatSection::new(Vec::new(), repo);
         section.parse(&logcat, 2024);
         let result = section.search_by_tag("GestureStubView");
         println!("{:?}", result.clone());
@@ -187,7 +200,8 @@ mod tests {
     #[test]
     fn test_search_by_time() {
         let logcat = get_test_lines();
-        let mut section = LogcatSection::new(Vec::new());
+        let repo = MockLogcatRepository::new();
+        let mut section = LogcatSection::new(Vec::new(), repo);
         section.parse(&logcat, 2024);
         let result = section.search_by_time("2024-08-16 10:01:34");
         println!("{:?}", result.clone());
@@ -197,7 +211,8 @@ mod tests {
     #[test]
     fn test_search_by_level() {
         let logcat = get_test_lines();
-        let mut section = LogcatSection::new(Vec::new());
+        let repo = MockLogcatRepository::new();
+        let mut section = LogcatSection::new(Vec::new(), repo);
         section.parse(&logcat, 2024);
         let result = section.search_by_level('D');
         println!("{:?}", result.clone());

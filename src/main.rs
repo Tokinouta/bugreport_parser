@@ -15,6 +15,7 @@ use models::result_item_bean::ResultItemBean;
 use trace_analysis::TraceAnalysis;
 
 pub mod cli_parser;
+pub mod db;
 pub mod models;
 pub mod trace_analysis;
 pub mod utils;

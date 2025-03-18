@@ -1,3 +1,5 @@
+use crate::db::{LogcatRepository, SqliteLogcatRepository};
+
 use super::{
     dumpsys::Dumpsys,
     logcat::{LogcatLine, LogcatSection},
