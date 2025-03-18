@@ -126,6 +126,14 @@ impl LogcatSection {
             .cloned()
             .collect()
     }
+
+    pub fn search_by_keyword(&self, keyword: &str) -> Vec<LogcatLine> {
+        self.0
+            .par_iter()
+            .filter(|line| line.message.contains(keyword))
+            .cloned()
+            .collect()
+    }
 }
 
 mod tests {
