@@ -6,6 +6,7 @@ use cli_parser::{Cli, Mode};
 pub mod bugreport;
 pub mod cli_parser;
 pub mod models;
+pub mod plugin;
 pub mod repl;
 pub mod trace_analysis;
 pub mod utils;
