@@ -1,14 +1,16 @@
 use lazy_static::lazy_static;
 use std::sync::{Arc, Mutex};
 
-use crate::bugreport::logcat::LogcatLine;
+use crate::bugreport::{bugreport::Bugreport, logcat::LogcatLine};
+
+pub mod input_focus_plugin;
 
 // Define the plugin trait
 pub trait Plugin: Send + Sync {
     fn name(&self) -> &str;
     fn version(&self) -> &str;
     fn register(&self);
-    fn analyze(&self, logcat: &[LogcatLine]);
+    fn analyze(&mut self, bugreport: &Bugreport);
     fn on_event(&self, event: &str);
 }
 
@@ -64,7 +66,7 @@ mod test {
             todo!()
         }
 
-        fn analyze(&self, logcat: &[LogcatLine]) {
+        fn analyze(&mut self, _: &Bugreport) {
             todo!()
         }
     }
@@ -88,7 +90,7 @@ mod test {
             todo!()
         }
 
-        fn analyze(&self, logcat: &[LogcatLine]) {
+        fn analyze(&mut self, _: &Bugreport) {
             todo!()
         }
     }

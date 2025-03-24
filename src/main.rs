@@ -1,5 +1,7 @@
-use std::path::Path;
+use bugreport::bugreport::Bugreport;
 use clap::Parser;
+use plugin::Plugin;
+use std::path::Path;
 
 use cli_parser::{Cli, Mode};
 
@@ -52,7 +54,11 @@ fn main() {
             }
         }
         Mode::Bugreport => {
-            
+            let mut bugreport = Bugreport::new(file_path).unwrap();
+            let _ = bugreport.load();
+            let mut plugin = plugin::input_focus_plugin::InputFocusPlugin::new();
+            plugin.analyze(&bugreport);
+            plugin.report();
         }
     }
 
