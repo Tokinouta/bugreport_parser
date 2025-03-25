@@ -12,6 +12,7 @@ pub trait Plugin: Send + Sync {
     fn register(&self);
     fn analyze(&mut self, bugreport: &Bugreport);
     fn on_event(&self, event: &str);
+    fn report(&self) -> String;
 }
 
 // Global plugin repository
@@ -69,6 +70,10 @@ mod test {
         fn analyze(&mut self, _: &Bugreport) {
             todo!()
         }
+
+        fn report(&self) -> String {
+            todo!()
+        }
     }
 
     struct LoggingPlugin;
@@ -91,6 +96,10 @@ mod test {
         }
 
         fn analyze(&mut self, _: &Bugreport) {
+            todo!()
+        }
+
+        fn report(&self) -> String {
             todo!()
         }
     }

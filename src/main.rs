@@ -58,7 +58,7 @@ fn main() {
             let _ = bugreport.load();
             let mut plugin = plugin::input_focus_plugin::InputFocusPlugin::new();
             plugin.analyze(&bugreport);
-            plugin.report();
+            println!("{}", plugin.report());
         }
     }
 

@@ -28,6 +28,7 @@ pub struct InputFocusTuple {
 
 pub struct InputFocusPlugin {
     records: Vec<InputFocusTuple>,
+    result: String,
 }
 
 impl Plugin for InputFocusPlugin {
@@ -58,19 +59,25 @@ impl Plugin for InputFocusPlugin {
 
         self.pair_input_focus(event_log_section);
     }
+
+    fn report(&self) -> String {
+        self.result.clone()
+    }
 }
 
 impl InputFocusPlugin {
     pub fn new() -> Self {
         Self {
             records: Vec::new(),
+            result: String::new(),
         }
     }
 
-    // pair input_focus logs within event log
-    // 第一步通过 dump of service greezer 找到用户开关屏幕的时间点，也可以考虑通过 screen_toggled 0
-    // 第二步根据上述开关屏时间点找当时的 input_focus 记录，看看每一个时间点的 focus 到底在哪里
-    // 第三步看 wm 生命周期，看能不能跟 focus 记录对上
+    /// pair input_focus logs within event log
+    /// 
+    /// 1. 第一步通过 dump of service greezer 找到用户开关屏幕的时间点，也可以考虑通过 screen_toggled 0
+    /// 2. 第二步根据上述开关屏时间点找当时的 input_focus 记录，看看每一个时间点的 focus 到底在哪里
+    /// 3. 第三步看 wm 生命周期，看能不能跟 focus 记录对上
     pub fn pair_input_focus(&mut self, section: &Section) {
         let result = match section.search_by_tag("input_focus") {
             Some(logs) => logs,
@@ -93,7 +100,10 @@ impl InputFocusPlugin {
             if let Some(captures) = INPUT_FOCUS_REQUEST.captures(&request.message) {
                 window = captures.get(1).map_or("", |m| m.as_str()).to_string();
             }
-            println!("window: {}", window);
+            // Bug fix: The `push_str` method of the `String` type takes only one argument, which is the string to be appended.
+            // The original code tried to use a format string, which is incorrect. We need to use the `format!` macro to format the string first,
+            // and then append it to `self.result`.
+            self.result.push_str(&format!("window: {}\n", window));
 
             let mut receive = None;
             let mut entering = None;
@@ -136,10 +146,6 @@ impl InputFocusPlugin {
         println!("rsrasreraerasera: {:?}", self.records.len());
     }
 
-    pub fn report(&self) {
-        println!("InputFocusPlugin: {:?}", self.records.len());
-    }
-
     fn get_records(&self) -> &Vec<InputFocusTuple> {
         &self.records
     }
@@ -157,9 +163,7 @@ mod tests {
             Ok(matches) => matches,
             Err(e) => panic!("Error: {}", e),
         };
-        let mut plugin = InputFocusPlugin {
-            records: Vec::new(),
-        };
+        let mut plugin = InputFocusPlugin::new();
         plugin.analyze(&bugreport);
         let result = plugin.get_records();
         for pair in result {
