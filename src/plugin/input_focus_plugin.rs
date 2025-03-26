@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -36,19 +36,8 @@ impl Plugin for InputFocusPlugin {
         "InputFocusPlugin"
     }
 
-    fn on_event(&self, event: &str) {
-        println!("{} says: Event '{}' occurred!", self.name(), event);
-    }
-
     fn version(&self) -> &str {
         todo!()
-    }
-
-    fn register(&self) {
-        // The error indicates that the trait bound `&InputFocusPlugin: plugin::Plugin` is not satisfied.
-        // The `PluginRepo::register` method expects an `Arc<dyn Plugin>`, but `self` is borrowed here.
-        // We need to clone `self` to create an owned `InputFocusPlugin` instance.
-        // PluginRepo::register(Arc::new(self.clone()));
     }
 
     fn analyze(&mut self, bugreport: &Bugreport) {

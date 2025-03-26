@@ -1,5 +1,9 @@
 use lazy_static::lazy_static;
-use std::sync::{Arc, Mutex};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use crate::bugreport::{bugreport::Bugreport, logcat::LogcatLine};
 
@@ -9,15 +13,13 @@ pub mod input_focus_plugin;
 pub trait Plugin: Send + Sync {
     fn name(&self) -> &str;
     fn version(&self) -> &str;
-    fn register(&self);
     fn analyze(&mut self, bugreport: &Bugreport);
-    fn on_event(&self, event: &str);
     fn report(&self) -> String;
 }
 
 // Global plugin repository
 lazy_static! {
-    static ref PLUGIN_REPO: Mutex<Vec<Arc<dyn Plugin>>> = Mutex::new(Vec::new());
+    static ref PLUGIN_REPO: Mutex<Vec<Arc<Mutex<dyn Plugin>>>> = Mutex::new(Vec::new());
 }
 
 // Plugin repository manager
@@ -25,23 +27,39 @@ pub struct PluginRepo;
 
 impl PluginRepo {
     /// Register a new plugin
-    pub fn register(plugin: Arc<dyn Plugin>) {
+    pub fn register(plugin: Arc<Mutex<dyn Plugin>>) {
         PLUGIN_REPO.lock().unwrap().push(plugin);
     }
 
     /// Get all registered plugins
-    pub fn get_all() -> Vec<Arc<dyn Plugin>> {
+    pub fn get_all() -> Vec<Arc<Mutex<dyn Plugin>>> {
         PLUGIN_REPO.lock().unwrap().clone()
     }
 
     /// Find a plugin by name
-    pub fn find_by_name(name: &str) -> Option<Arc<dyn Plugin>> {
+    pub fn find_by_name(name: &str) -> Option<Arc<Mutex<dyn Plugin>>> {
         PLUGIN_REPO
             .lock()
             .unwrap()
             .iter()
-            .find(|p| p.name() == name)
+            .find(|p| p.try_lock().unwrap().name() == name)
             .map(Arc::clone)
+    }
+
+    pub fn analyze_all(bugreport: &Bugreport) {
+        for plugin in PluginRepo::get_all() {
+            let mut plugin = plugin.lock().unwrap();
+            plugin.analyze(bugreport);
+        }
+    }
+
+    pub fn report_all() -> String {
+        let mut reports = Vec::new();
+        for plugin in PluginRepo::get_all() {
+            let plugin = plugin.lock().unwrap();
+            reports.push(plugin.report());
+        }
+        reports.join("\n")
     }
 }
 
@@ -55,15 +73,7 @@ mod test {
             "GreetingPlugin"
         }
 
-        fn on_event(&self, event: &str) {
-            println!("{} says: Event '{}' occurred!", self.name(), event);
-        }
-
         fn version(&self) -> &str {
-            todo!()
-        }
-
-        fn register(&self) {
             todo!()
         }
 
@@ -72,7 +82,7 @@ mod test {
         }
 
         fn report(&self) -> String {
-            todo!()
+            format!("{} says: Reporteded!", self.name())
         }
     }
 
@@ -83,15 +93,7 @@ mod test {
             "LoggingPlugin"
         }
 
-        fn on_event(&self, event: &str) {
-            println!("[LOG] {}: {}", self.name(), event);
-        }
-
         fn version(&self) -> &str {
-            todo!()
-        }
-
-        fn register(&self) {
             todo!()
         }
 
@@ -100,27 +102,27 @@ mod test {
         }
 
         fn report(&self) -> String {
-            todo!()
+            format!("{} says: Reporteded!", self.name())
         }
     }
 
     #[test]
     fn test_plugin_repo() {
         // Register plugins at startup
-        PluginRepo::register(Arc::new(GreetingPlugin));
-        PluginRepo::register(Arc::new(LoggingPlugin));
+        PluginRepo::register(Arc::new(Mutex::new(GreetingPlugin)));
+        PluginRepo::register(Arc::new(Mutex::new(LoggingPlugin)));
 
         // Demonstrate using all plugins
         let plugins = PluginRepo::get_all();
         println!("Registered {} plugins:", plugins.len());
 
         for plugin in &plugins {
-            plugin.on_event("system_start");
+            plugin.lock().unwrap().report();
         }
 
         // Demonstrate finding a specific plugin
         if let Some(logger) = PluginRepo::find_by_name("LoggingPlugin") {
-            logger.on_event("custom_log_entry");
+            logger.lock().unwrap().report();
         }
     }
 }
