@@ -8,6 +8,7 @@ use std::{
 use crate::bugreport::{bugreport::Bugreport, logcat::LogcatLine};
 
 pub mod input_focus_plugin;
+pub mod timestamp_plugin;
 
 // Define the plugin trait
 pub trait Plugin: Send + Sync {

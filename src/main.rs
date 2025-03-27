@@ -1,6 +1,6 @@
 use bugreport::bugreport::Bugreport;
 use clap::Parser;
-use plugin::PluginRepo;
+use plugin::{timestamp_plugin, PluginRepo};
 use std::{path::Path, sync::{Arc, Mutex}};
 
 use cli_parser::{Cli, Mode};
@@ -57,7 +57,9 @@ fn main() {
             let mut bugreport = Bugreport::new(file_path).unwrap();
             let _ = bugreport.load();
             let plugin = plugin::input_focus_plugin::InputFocusPlugin::new();
+            let timestamp_plugin = timestamp_plugin::TimestampPlugin::new();
             PluginRepo::register(Arc::new(Mutex::new(plugin)));
+            PluginRepo::register(Arc::new(Mutex::new(timestamp_plugin)));
             PluginRepo::analyze_all(&bugreport);
             println!("Plugin report:");
             println!("{}", PluginRepo::report_all());

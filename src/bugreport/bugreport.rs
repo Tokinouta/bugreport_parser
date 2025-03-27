@@ -134,6 +134,10 @@ impl Bugreport {
         }
         Some(results)
     }
+
+    pub fn get_metadata(&self) -> &Metadata {
+        &self.metadata
+    }
 }
 
 pub fn test_setup_bugreport() -> io::Result<Bugreport> {
@@ -179,6 +183,8 @@ pub fn test_setup_bugreport() -> io::Result<Bugreport> {
     }
     Ok(Bugreport::new(file_path).unwrap())
 }
+
+// TODO: write a bugreport setup function that calls `Bugreport::load()` inside
 
 mod tests {
     use super::*;
