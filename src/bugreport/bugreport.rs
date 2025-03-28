@@ -1,319 +1,159 @@
-use std::fs::File;
+use glob::glob;
+use std::fs::{self, File};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use zip::ZipArchive;
 
-use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone};
-use memmap2::Mmap;
+use super::bugreport_txt::BugreportTxt;
 
-use super::dumpsys::Dumpsys;
-use super::logcat::{LogcatLine, LogcatSection};
-use super::metadata::Metadata;
-use super::section::{Section, SectionContent, SECTION_BEGIN, SECTION_BEGIN_NO_CMD, SECTION_END};
-#[derive(Debug)]
+struct BugreportDirs {
+    bugreport_txt: PathBuf,
+    anr_files_dir: PathBuf,
+    miuilog_reboot_dir: PathBuf,
+    miuilog_scout_dir: PathBuf,
+}
+
+impl BugreportDirs {
+    fn new() -> Self {
+        BugreportDirs {
+            bugreport_txt: PathBuf::new(),
+            anr_files_dir: PathBuf::new(),
+            miuilog_reboot_dir: PathBuf::new(),
+            miuilog_scout_dir: PathBuf::new(),
+        }
+    }
+}
+
 pub struct Bugreport {
-    pub raw_file: Mmap,
-    pub metadata: Metadata,
-    pub sections: Vec<Section>,
+    bugreport_txt: BugreportTxt,
+    anr_files: Vec<String>,
+    miuilog_reboots: Vec<String>,
+    miuilog_scouts: Vec<String>,
 }
 
 impl Bugreport {
-    pub fn new(path: &Path) -> io::Result<Self> {
-        // Open the file
-        let raw_file = File::open(path)?;
-        let mmap_file = unsafe { Mmap::map(&raw_file)? };
-        Ok(Bugreport {
-            raw_file: mmap_file,
-            metadata: Metadata::new(),
-            sections: Vec::new(),
-        })
+    pub fn new(bugreport_zip_path: &Path) -> Self {
+        let bugreport_txt = BugreportTxt::new(bugreport_zip_path).unwrap();
+        Bugreport {
+            bugreport_txt,
+            anr_files: Vec::new(),
+            miuilog_reboots: Vec::new(),
+            miuilog_scouts: Vec::new(),
+        }
     }
 
-    pub fn load(&mut self) -> io::Result<()> {
-        let result = self.read_and_slice()?;
-        self.pair_sections(&result);
+    fn unzip(path: &Path) -> io::Result<()> {
+        // Unzip the bug report file
+        let zip_file = std::fs::File::open(path)?;
+        let mut archive = zip::ZipArchive::new(zip_file)?;
+        let base_dir = path
+            .file_stem()
+            .unwrap_or_else(|| std::ffi::OsStr::new("."));
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i)?;
+            let out_path = Path::new(base_dir).join(file.name());
+            if file.is_dir() {
+                std::fs::create_dir_all(&out_path)?;
+            } else {
+                let mut outfile = std::fs::File::create(&out_path)?;
+                io::copy(&mut file, &mut outfile)?;
+            }
+        }
         Ok(())
     }
 
-    fn read_and_slice(&mut self) -> io::Result<Vec<(usize, String)>> {
-        let bugreport = std::str::from_utf8(&self.raw_file).unwrap();
-        let mut lines = bugreport.lines();
-
-        self.metadata.parse(&mut lines)?;
-
-        // Create a vector to store the line number and content of each match
-        let mut matches: Vec<(usize, String)> = Vec::new();
-        let filter_and_add =
-            |matches: &mut Vec<(usize, String)>, line_number: usize, group: &str| match group {
-                "BLOCK STAT" => {}
-                l if l.ends_with("PROTO") => {}
-                _ => {
-                    matches.push((line_number, group.to_string()));
-                }
-            };
-
-        for (line_number, line) in lines.enumerate() {
-            let line_number = line_number + self.metadata.lines_passed;
-            // Check if the first regex matches and capture groups
-            if let Some(caps) = SECTION_END.captures(&line) {
-                if let Some(group) = caps.get(2) {
-                    // Get the second capture group
-                    filter_and_add(&mut matches, line_number + 1, group.as_str());
-                }
-            }
-            // Check for the second regex
-            else if let Some(caps) = SECTION_BEGIN.captures(&line) {
-                if let Some(group) = caps.get(1) {
-                    filter_and_add(&mut matches, line_number + 1, group.as_str());
-                }
-            }
-            // Check for the third regex
-            else if let Some(caps) = SECTION_BEGIN_NO_CMD.captures(&line) {
-                if let Some(group) = caps.get(1) {
-                    filter_and_add(&mut matches, line_number + 1, group.as_str());
-                }
-            }
-        }
-        Ok(matches)
-    }
-
-    fn pair_sections(&mut self, matches: &Vec<(usize, String)>) {
-        // iterate over matches with indices
-        let mut second_occurance = false;
-        let bugreport = std::str::from_utf8(&self.raw_file).unwrap();
-        let lines: Vec<&str> = bugreport.lines().collect();
-        for (index, (line_number, content)) in matches.iter().enumerate() {
-            if index > 0 && content.contains(&matches.get(index - 1).unwrap().1) {
-                second_occurance = true;
-            }
-            if !second_occurance {
-                continue;
-            }
-
-            let start_line = matches.get(index - 1).unwrap().0;
-            let end_line = *line_number;
-            let mut current_section = Section::new(
-                content.to_string(),
-                start_line + 1,
-                end_line - 1,
-                match content.as_str() {
-                    "SYSTEM LOG" => SectionContent::SystemLog(LogcatSection::new(Vec::new())),
-                    "EVENT LOG" => SectionContent::EventLog(LogcatSection::new(Vec::new())),
-                    "DUMPSYS" => SectionContent::Dumpsys(Dumpsys::new()),
-                    _ => SectionContent::Other,
-                },
-            );
-
-            current_section.parse(
-                &lines[start_line + 1..end_line],
-                self.metadata.timestamp.year(),
-            );
-
-            self.sections.push(current_section);
-
-            second_occurance = false;
-        }
-    }
-
-    pub fn get_sections(&self) -> &Vec<Section> {
-        &self.sections
+    pub fn load(&mut self) -> io::Result<()> {
+        // Load the bug report and extract relevant information
+        self.bugreport_txt.load()?;
+        // self.anr_files = self.bugreport_txt.get_anr_files();
+        // self.miuilog_reboots = self.bugreport_txt.get_miuilog_reboots();
+        // self.miuilog_scouts = self.bugreport_txt.get_miuilog_scouts();
+        Ok(())
     }
 }
 
-impl Bugreport {
-    pub fn search_by_tag(&self, tag: &str) -> Option<Vec<LogcatLine>> {
-        let sections = self
-            .sections
-            .iter()
-            .filter(|s| s.name == "SYSTEM LOG" || s.name == "EVENT LOG")
-            .collect::<Vec<&Section>>();
-        let mut results = Vec::new();
-        for section in sections {
-            if let Some(lines) = section.search_by_tag(tag) {
-                results.extend(lines);
+fn extract(
+    feedback_id: u64,
+    bugreport_zip: &Path,
+    user_feedback_path: &Path,
+) -> Result<BugreportDirs, Box<dyn std::error::Error>> {
+    // Create feedback directory
+    let feedback_dir = user_feedback_path.join(feedback_id.to_string());
+    fs::create_dir_all(&feedback_dir)?;
+
+    // Extract and remove the initial bugreport zip
+    if let Err(e) = unzip_and_delete(bugreport_zip, &feedback_dir) {
+        eprintln!("Failed to extract initial bugreport: {}", e);
+    }
+
+    // Find subsequent bugreport zip
+    let pattern = feedback_dir.join("bugreport*.zip");
+    let matches = glob(pattern.to_str().unwrap())?;
+    let bugreport_zip_path = matches.filter_map(Result::ok).next();
+
+    let bugreport_zip_path = match bugreport_zip_path {
+        Some(path) => path,
+        None => {
+            eprintln!("No bugreport*.zip found");
+            // TODO: modify this to actual paths
+            return Ok(BugreportDirs {
+                bugreport_txt: feedback_dir.join("bugreport.txt"),
+                anr_files_dir: feedback_dir.join("anr_files"),
+                miuilog_reboot_dir: feedback_dir.join("miuilog_reboot"),
+                miuilog_scout_dir: feedback_dir.join("miuilog_scout"),
+            });
+        }
+    };
+
+    // Create extraction directory
+    let bugreport_dir = feedback_dir.join(
+        bugreport_zip_path
+            .file_stem()
+            .ok_or("Invalid zip filename")?
+            .to_str()
+            .ok_or("Non-UTF8 filename")?,
+    );
+    fs::create_dir_all(&bugreport_dir)?;
+
+    // Extract and remove secondary zip
+    if let Err(e) = unzip_and_delete(&bugreport_zip_path, &bugreport_dir) {
+        eprintln!("Failed to extract secondary bugreport: {}", e);
+    }
+
+    // Check for reboot directory
+    let reboot_mqs_dir = bugreport_dir
+        .join("FS")
+        .join("data")
+        .join("miuilog")
+        .join("stability")
+        .join("reboot");
+
+    if reboot_mqs_dir.is_dir() {
+        let zip_pattern = reboot_mqs_dir.join("*.zip");
+        for zip_path in glob(zip_pattern.to_str().unwrap())?.filter_map(Result::ok) {
+            let extract_dir = zip_path.with_extension("");
+            fs::create_dir_all(&extract_dir)?;
+            if let Err(e) = unzip_and_delete(&zip_path, &extract_dir) {
+                eprintln!("Failed to extract nested zip: {}", e);
             }
         }
-        Some(results)
+    } else {
+        eprintln!("No reboot directory found");
     }
 
-    pub fn get_metadata(&self) -> &Metadata {
-        &self.metadata
-    }
+    // TODO: modify this to actual paths
+    Ok(BugreportDirs {
+        bugreport_txt: feedback_dir.join("bugreport.txt"),
+        anr_files_dir: feedback_dir.join("anr_files"),
+        miuilog_reboot_dir: feedback_dir.join("miuilog_reboot"),
+        miuilog_scout_dir: feedback_dir.join("miuilog_scout"),
+    })
 }
 
-pub fn test_setup_bugreport() -> io::Result<Bugreport> {
-    let file_path = Path::new("tests/data/example.txt");
-    if !Path::new(file_path).exists() {
-        println!(
-            "File '{}' does not exist. Extracting from ZIP...",
-            file_path.to_str().unwrap()
-        );
-
-        // ZIP 文件路径
-        let zip_path = Path::new("tests/data/example.zip");
-
-        // 打开 ZIP 文件
-        let zip_file = File::open(zip_path)?;
-        let mut archive = zip::ZipArchive::new(zip_file)?;
-
-        // 解压整个 ZIP 文件
-        for i in 0..archive.len() {
-            let mut file = archive.by_index(i)?;
-            let file_name = file.name();
-
-            let mut file_path = std::path::PathBuf::from("tests/data");
-            file_path.push(file_name);
-            println!("Extracting {}...", file_path.display());
-
-            // 创建目标文件或目录
-            if file.is_dir() {
-                std::fs::create_dir_all(file_path)?;
-            } else {
-                if let Some(parent) = Path::new(&file_path).parent() {
-                    if !parent.exists() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                }
-
-                let mut output_file = File::create(file_path)?;
-                io::copy(&mut file, &mut output_file)?;
-            }
-        }
-
-        println!("Extraction complete.");
-    }
-    Ok(Bugreport::new(file_path).unwrap())
-}
-
-// TODO: write a bugreport setup function that calls `Bugreport::load()` inside
-
-mod tests {
-    use super::*;
-    use chrono::{NaiveDate, TimeZone};
-
-    #[test]
-    fn test_read_and_slice() {
-        let mut bugreport = test_setup_bugreport().unwrap();
-        let matches = bugreport.read_and_slice().unwrap();
-        assert_eq!(matches.len(), 274);
-        assert_eq!(
-            bugreport.metadata.timestamp,
-            Local
-                .from_local_datetime(
-                    &NaiveDate::from_ymd_opt(2024, 8, 16)
-                        .unwrap()
-                        .and_hms_opt(10, 02, 11)
-                        .unwrap(),
-                )
-                .unwrap()
-        );
-    }
-
-    #[test]
-    fn test_pair_sections() {
-        let mut bugreport = test_setup_bugreport().unwrap();
-
-        let start = std::time::Instant::now();
-        let matches = match bugreport.read_and_slice() {
-            Ok(matches) => matches,
-            Err(e) => {
-                println!("Error: {}", e);
-                return;
-            }
-        };
-        let duration = start.elapsed();
-        println!("Time taken: {:?}", duration);
-        let start = std::time::Instant::now();
-        bugreport.pair_sections(&matches);
-        let duration = start.elapsed();
-        println!("Time taken: {:?}", duration);
-        assert_eq!(bugreport.sections.len(), 134);
-
-        // find the section with the name "SYSTEM LOG"
-        let system_log_section = bugreport.sections.iter().find(|s| s.name == "SYSTEM LOG");
-        assert_eq!(
-            system_log_section.unwrap().content,
-            SectionContent::SystemLog(LogcatSection::new(Vec::new()))
-        );
-        // find the section with the name "EVENT LOG"
-        let event_log_section = bugreport.sections.iter().find(|s| s.name == "EVENT LOG");
-        assert_eq!(
-            event_log_section.unwrap().content,
-            SectionContent::EventLog(LogcatSection::new(Vec::new()))
-        );
-        // find the section with the name "DUMPSYS"
-        let dumpsys_section = bugreport.sections.iter().find(|s| s.name == "DUMPSYS");
-        assert_eq!(
-            dumpsys_section.unwrap().content,
-            SectionContent::Dumpsys(Dumpsys::new())
-        );
-        // find a section without the above names
-        let other_section = bugreport
-            .sections
-            .iter()
-            .find(|s| s.name != "SYSTEM LOG" && s.name != "EVENT LOG" && s.name != "DUMPSYS");
-        assert_eq!(other_section.unwrap().content, SectionContent::Other);
-    }
-
-    #[test]
-    fn test_parse_line() {
-        let mut bugreport = test_setup_bugreport().unwrap();
-        let matches = match bugreport.read_and_slice() {
-            Ok(matches) => matches,
-            Err(e) => {
-                println!("Error: {}", e);
-                return;
-            }
-        };
-        bugreport.pair_sections(&matches);
-
-        // find the second section with name "SYSTEM LOG"
-        let system_log_sections = bugreport
-            .sections
-            .iter_mut()
-            .filter(|s| s.name == "SYSTEM LOG")
-            .collect::<Vec<&mut Section>>();
-
-        let system_log_section_1st = system_log_sections.get(0).unwrap();
-        let lines = match &system_log_section_1st.content {
-            SectionContent::SystemLog(lines) => lines,
-            _ => panic!("Expected SystemLog section type"),
-        };
-
-        assert_eq!(lines.len(), system_log_section_1st.get_line_numbers() - 7);
-        // The seven lines that cannot be parsed are listed below:
-        // These three are as expected:
-        // No such line: "--------- beginning of system"
-        // No such line: "--------- beginning of crash"
-        // No such line: "--------- beginning of main"
-        // The following four do not contain a colon (WTF?!!):
-        // No such line: "08-16 10:01:26.784  1000  5098  5098 D QSRecord custom(com.google.android.as/com.google.android.apps.miphone.aiai.captions.quicset listening to true"
-        // No such line: "08-16 10:01:29.628  1000  5098  5098 D QSRecord custom(com.google.android.as/com.google.android.apps.miphone.aiai.captions.quicset listening to false"
-        // No such line: "08-16 10:01:29.976  1000  5098  5098 D QSRecord custom(com.google.android.as/com.google.android.apps.miphone.aiai.captions.quicset listening to true"
-        // No such line: "08-16 10:01:31.110  1000  5098  5098 D QSRecord custom(com.google.android.as/com.google.android.apps.miphone.aiai.captions.quicset listening to false"
-
-        let system_log_section_2nd = system_log_sections.get(1).unwrap();
-        let lines = match &system_log_section_2nd.content {
-            SectionContent::SystemLog(lines) => lines,
-            _ => panic!("Expected SystemLog section type"),
-        };
-
-        assert_eq!(lines.len(), system_log_section_2nd.get_line_numbers() - 2);
-        // The two lines that cannot be parsed are listed below:
-        // No such line: "--------- beginning of system"
-        // No such line: "--------- beginning of main"
-
-        let event_log_section = bugreport
-            .sections
-            .iter_mut()
-            .find(|s| s.name == "EVENT LOG")
-            .unwrap();
-        let lines = match &event_log_section.content {
-            SectionContent::EventLog(lines) => lines,
-            _ => panic!("Expected EventLog section type"),
-        };
-
-        assert_eq!(lines.len(), event_log_section.get_line_numbers() - 1);
-        // The one line that cannot be parsed is listed below:
-        // No such line: "--------- beginning of events"
-    }
+fn unzip_and_delete(zip_path: &Path, dest_dir: &Path) -> io::Result<()> {
+    let file = File::open(zip_path)?;
+    let mut archive = ZipArchive::new(file)?;
+    archive.extract(dest_dir)?;
+    fs::remove_file(zip_path)?;
+    Ok(())
 }

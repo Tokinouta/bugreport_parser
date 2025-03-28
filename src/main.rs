@@ -1,4 +1,4 @@
-use bugreport::bugreport::Bugreport;
+use bugreport::bugreport_txt::BugreportTxt;
 use clap::Parser;
 use plugin::{timestamp_plugin, PluginRepo};
 use std::{path::Path, sync::{Arc, Mutex}};
@@ -54,7 +54,7 @@ fn main() {
             }
         }
         Mode::Bugreport => {
-            let mut bugreport = Bugreport::new(file_path).unwrap();
+            let mut bugreport = BugreportTxt::new(file_path).unwrap();
             let _ = bugreport.load();
             let plugin = plugin::input_focus_plugin::InputFocusPlugin::new();
             let timestamp_plugin = timestamp_plugin::TimestampPlugin::new();

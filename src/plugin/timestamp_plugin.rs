@@ -1,6 +1,6 @@
 use chrono::{DateTime, Local};
 
-use crate::bugreport::bugreport::Bugreport;
+use crate::bugreport::bugreport_txt::BugreportTxt;
 
 use super::Plugin;
 
@@ -17,7 +17,7 @@ impl Plugin for TimestampPlugin {
         "1.0.0"
     }
 
-    fn analyze(&mut self, bugreport: &Bugreport) {
+    fn analyze(&mut self, bugreport: &BugreportTxt) {
         // Analyze the bug report and extract timestamps
         self.timestamp = bugreport.get_metadata().timestamp.clone();
         println!("Analyzed timestamps: {:?}", self.timestamp);
@@ -38,7 +38,7 @@ impl TimestampPlugin {
 
 mod test {
     use super::*;
-    use crate::bugreport::bugreport::{test_setup_bugreport, Bugreport};
+    use crate::bugreport::bugreport_txt::{test_setup_bugreport, BugreportTxt};
     use crate::bugreport::metadata::Metadata;
 
     #[test]

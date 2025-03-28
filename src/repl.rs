@@ -2,7 +2,7 @@ use std::path::Path;
 use std::rc::Rc;
 use rustyline::{DefaultEditor, error::ReadlineError};
 
-use crate::bugreport::bugreport::Bugreport;
+use crate::bugreport::bugreport_txt::BugreportTxt;
 use crate::bugreport::logcat::LogcatLine;
 
 
@@ -12,7 +12,7 @@ enum ReplStatus {
 }
 
 struct ReplState {
-    bugreport: Bugreport,
+    bugreport: BugreportTxt,
     status: ReplStatus,
     last_command: String,
     last_result: Rc<Vec<LogcatLine>>,
@@ -20,7 +20,7 @@ struct ReplState {
 
 pub fn repl(path: &Path) {
     let mut rl = DefaultEditor::new().unwrap();
-    let mut bugreport = match Bugreport::new(path) {
+    let mut bugreport = match BugreportTxt::new(path) {
         Ok(bugreport) => bugreport,
         Err(_) => return,
     };

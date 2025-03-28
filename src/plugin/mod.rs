@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::bugreport::{bugreport::Bugreport, logcat::LogcatLine};
+use crate::bugreport::{bugreport_txt::BugreportTxt, logcat::LogcatLine};
 
 pub mod input_focus_plugin;
 pub mod timestamp_plugin;
@@ -14,7 +14,7 @@ pub mod timestamp_plugin;
 pub trait Plugin: Send + Sync {
     fn name(&self) -> &str;
     fn version(&self) -> &str;
-    fn analyze(&mut self, bugreport: &Bugreport);
+    fn analyze(&mut self, bugreport: &BugreportTxt);
     fn report(&self) -> String;
 }
 
@@ -47,7 +47,7 @@ impl PluginRepo {
             .map(Arc::clone)
     }
 
-    pub fn analyze_all(bugreport: &Bugreport) {
+    pub fn analyze_all(bugreport: &BugreportTxt) {
         for plugin in PluginRepo::get_all() {
             let mut plugin = plugin.lock().unwrap();
             plugin.analyze(bugreport);
@@ -78,7 +78,7 @@ mod test {
             todo!()
         }
 
-        fn analyze(&mut self, _: &Bugreport) {
+        fn analyze(&mut self, _: &BugreportTxt) {
             todo!()
         }
 
@@ -98,7 +98,7 @@ mod test {
             todo!()
         }
 
-        fn analyze(&mut self, _: &Bugreport) {
+        fn analyze(&mut self, _: &BugreportTxt) {
             todo!()
         }
 

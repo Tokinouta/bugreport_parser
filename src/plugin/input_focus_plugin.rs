@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use lazy_static::lazy_static;
 use regex::Regex;
 
-use crate::bugreport::{bugreport::Bugreport, logcat::LogcatLine, section::Section};
+use crate::bugreport::{bugreport_txt::BugreportTxt, logcat::LogcatLine, section::Section};
 
 use super::{Plugin, PluginRepo};
 
@@ -40,7 +40,7 @@ impl Plugin for InputFocusPlugin {
         todo!()
     }
 
-    fn analyze(&mut self, bugreport: &Bugreport) {
+    fn analyze(&mut self, bugreport: &BugreportTxt) {
         let event_log_section = match bugreport.sections.iter().find(|s| s.name == "EVENT LOG") {
             Some(section) => section,
             None => panic!("EVENT LOG section not found"),
@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_pair_input_focus() {
-        let mut bugreport = crate::bugreport::bugreport::test_setup_bugreport().unwrap();
+        let mut bugreport = crate::bugreport::bugreport_txt::test_setup_bugreport().unwrap();
         match bugreport.load() {
             Ok(matches) => matches,
             Err(e) => panic!("Error: {}", e),
